@@ -6,14 +6,13 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 from sqlalchemy.exc import IntegrityError
 
-# --- 1. إعداد قاعدة البيانات الشاملة (v23) ---
+# --- 1. إعداد قاعدة البيانات الشاملة (v24) ---
 Base = declarative_base()
 
 class Site(Base):
     __tablename__ = 'sites'
     id = Column(Integer, primary_key=True)
-    name = Column(String(100), unique=True) # يمنع تكرار اسم الحضيرة
-    lat = Column(Float); lon = Column(Float)
+    name = Column(String(100), unique=True); lat = Column(Float); lon = Column(Float)
 
 class WorkLog(Base):
     __tablename__ = 'work_logs'
@@ -44,24 +43,24 @@ class LabLog(Base):
     test_name = Column(String(100)); result = Column(String(100)); status = Column(String(50))
     site = Column(String(100)); timestamp = Column(DateTime, default=datetime.utcnow)
 
-# إنشاء محرك قاعدة البيانات (تغيير الاسم لضمان بداية نظيفة)
-engine = create_engine('sqlite:///egms_final_v23.db')
+# إنشاء محرك قاعدة البيانات
+engine = create_engine('sqlite:///egms_final_v24.db')
 Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 
 # --- 2. القاموس اللغوي ---
 LANG = {
     "العربية": {
-        "title": "منظومة EGMS v23", "login": "تسجيل الدخول", "user": "المستخدم", "pwd": "الرمز",
+        "title": "منظومة EGMS المتكاملة v24", "login": "تسجيل الدخول", "user": "المستخدم", "pwd": "الرمز",
         "role_dir": "المدير العام", "role_safe": "مسؤول السلامة", "role_lab": "مسؤول المختبر",
         "role_worker": "مسؤول العمال", "role_store": "مسؤول المخزن", "role_work": "مسؤول الأشغال",
-        "save": "حفظ", "dash": "لوحة التحكم", "map": "الخريطة", "add_site": "إدارة الحضائر"
+        "save": "حفظ", "dash": "لوحة التحكم المركزية", "map": "الخريطة", "add_site": "إدارة الحضائر"
     },
     "Français": {
-        "title": "Système EGMS v23", "login": "Connexion", "user": "ID", "pwd": "Pass",
+        "title": "Système Global EGMS v24", "login": "Connexion", "user": "ID", "pwd": "Pass",
         "role_dir": "Directeur", "role_safe": "Sécurité", "role_lab": "Labo",
         "role_worker": "RH", "role_store": "Stock", "role_work": "Travaux",
-        "save": "Enregistrer", "dash": "Dashboard", "map": "Carte", "add_site": "Sites"
+        "save": "Enregistrer", "dash": "Tableau de Bord", "map": "Carte", "add_site": "Sites"
     }
 }
 
@@ -78,101 +77,105 @@ if "logged_in" not in st.session_state:
     st.title(T["login"])
     u = st.text_input(T["user"]); p = st.text_input(T["pwd"], type="password")
     if st.button("🚀 Enter"):
-        # معرفات ثابتة لضمان عمل الواجهات
-        access = {
-            "admin": ("egms2025", "Admin"),
-            "safety": ("safe2025", "Safety"),
-            "labo": ("lab2025", "Lab"),
-            "labor": ("labor2025", "Labor"),
-            "magaza": ("store2025", "Store"),
-            "work": ("work2025", "Work")
-        }
+        access = {"admin": ("egms2025", "Admin"), "safety": ("safe2025", "Safety"), "labo": ("lab2025", "Lab"), "labor": ("labor2025", "Labor"), "magaza": ("store2025", "Store"), "work": ("work2025", "Work")}
         if u in access and p == access[u][0]:
             st.session_state.update({"logged_in": True, "role_id": access[u][1]})
             st.rerun()
-        else: st.error("Error / خطأ")
+        else: st.error("Error")
 else:
     role_id = st.session_state.get("role_id")
-    st.sidebar.markdown(f"👤 **Role: {role_id}**")
-    if st.sidebar.button("Logout / خروج"): st.session_state.clear(); st.rerun()
+    st.sidebar.markdown(f"👤 **{role_id}**")
+    if st.sidebar.button("Logout"): st.session_state.clear(); st.rerun()
     
     all_sites = get_sites()
 
-    # --- 4. واجهة المدير العام ---
+    # --- 4. واجهة المدير العام (عرض كافة البيانات) ---
     if role_id == "Admin":
         st.title(T["dash"])
-        tabs = st.tabs([T["map"], "المخزن", "العمال", "الأشغال", "السلامة", "المختبر", T["add_site"]])
+        tabs = st.tabs([T["map"], "📦 المخزن", "👷 العمال", "🏗️ الأشغال", "🛡️ السلامة", "🧪 المختبر", T["add_site"]])
         session = Session()
 
         with tabs[0]: # الخريطة
-            df_s = pd.read_sql(session.query(Site).statement, session.bind)
-            if not df_s.empty: st.map(df_s, latitude='lat', longitude='lon')
+            df_sites = pd.read_sql(session.query(Site).statement, session.bind)
+            if not df_sites.empty: st.map(df_sites, latitude='lat', longitude='lon')
             else: st.info("الخريطة فارغة")
 
-        with tabs[3]: # تبويب الأشغال للمدير (لمراقبة التقارير)
-            st.subheader("تقارير الأشغال الميدانية")
-            df_work = pd.read_sql(session.query(WorkLog).statement, session.bind)
-            st.dataframe(df_work, use_container_width=True)
+        with tabs[1]: # بيانات المخزن
+            st.subheader("سجل تحركات المخزن")
+            df_store = pd.read_sql(session.query(StoreLog).statement, session.bind)
+            if not df_store.empty: st.dataframe(df_store, use_container_width=True)
+            else: st.info("لا توجد بيانات مخزن حالياً")
 
-        with tabs[6]: # إدارة المواقع (مع حل مشكلة التكرار)
-            st.subheader(T["add_site"])
-            with st.form("site_secure_form"):
-                n = st.text_input("اسم الحضيرة الجديد")
-                la = st.number_input("Lat", value=36.0, format="%.6f")
-                lo = st.number_input("Lon", value=10.0, format="%.6f")
-                if st.form_submit_button("إضافة الموقع"):
-                    if n:
-                        try:
-                            new_site = Site(name=n, lat=la, lon=lo)
-                            session.add(new_site)
-                            session.commit()
-                            st.success(f"✅ تم إضافة {n} بنجاح!")
-                            st.rerun()
-                        except IntegrityError:
-                            session.rollback()
-                            st.error(f"⚠️ خطأ: الموقع '{n}' موجود بالفعل في النظام!")
-                    else: st.error("يرجى إدخال اسم")
+        with tabs[2]: # بيانات العمال
+            st.subheader("سجل العمال والرواتب")
+            df_worker = pd.read_sql(session.query(WorkerLog).statement, session.bind)
+            if not df_worker.empty: 
+                df_worker['Total TND'] = df_worker['hours'] * df_worker['hourly_rate']
+                st.dataframe(df_worker, use_container_width=True)
+            else: st.info("لا توجد بيانات عمال حالياً")
+
+        with tabs[3]: # بيانات الأشغال
+            st.subheader("تقارير تقدم الأشغال")
+            df_work = pd.read_sql(session.query(WorkLog).statement, session.bind)
+            if not df_work.empty: st.dataframe(df_work, use_container_width=True)
+            else: st.info("لا توجد تقارير ميدانية")
+
+        with tabs[4]: # بيانات السلامة
+            st.subheader("تقارير الحوادث والسلامة")
+            df_safe = pd.read_sql(session.query(SafetyLog).statement, session.bind)
+            if not df_safe.empty: st.table(df_safe)
+            else: st.info("لا توجد تقارير سلامة")
+
+        with tabs[5]: # بيانات المختبر
+            st.subheader("نتائج اختبارات المختبر")
+            df_lab = pd.read_sql(session.query(LabLog).statement, session.bind)
+            if not df_lab.empty: st.dataframe(df_lab, use_container_width=True)
+            else: st.info("لا توجد نتائج مختبر")
+
+        with tabs[6]: # إضافة المواقع
+            with st.form("site_f"):
+                n = st.text_input("اسم الحضيرة"); la = st.number_input("Lat", value=36.0, format="%.6f"); lo = st.number_input("Lon", value=10.0, format="%.6f")
+                if st.form_submit_button("إضافة"):
+                    try:
+                        session.add(Site(name=n, lat=la, lon=lo)); session.commit(); st.success("Done!"); st.rerun()
+                    except IntegrityError: session.rollback(); st.error("Exists!")
         session.close()
 
-    # --- 5. واجهة مسؤول الأشغال (التحقق من ظهورها) ---
-    elif role_id == "Work":
-        st.header(f"🏗️ {T['role_work']}")
-        if not all_sites:
-            st.warning("⚠️ لا توجد مواقع مضافة. يجب على المدير إضافة حضيرة أولاً.")
-        else:
-            with st.form("work_direct_form"):
-                s_choice = st.selectbox("اختر الموقع", list(all_sites.keys()))
-                prog = st.slider("نسبة الإنجاز %", 0, 100)
-                note = st.text_area("وصف الأعمال اليومية")
-                if st.form_submit_button(T["save"]):
-                    session = Session()
-                    lat, lon = all_sites[s_choice]
-                    session.add(WorkLog(site=s_choice, progress=prog, notes=note, lat=lat, lon=lon))
-                    session.commit(); session.close()
-                    st.success("✅ تم إرسال تقرير الأشغال بنجاح!")
-
-    # --- 6. بقية واجهات المسؤولين (السلامة، المخزن، العمال) ---
-    elif role_id == "Safety":
-        st.header(T["role_safe"])
-        with st.form("safe_f"):
-            inc = st.selectbox("الحادث", ["عادي", "حادث شغل", "خطر"])
-            note = st.text_area("التفاصيل")
-            s_choice = st.selectbox("الموقع", list(all_sites.keys()) if all_sites else ["None"])
+    # --- 5. واجهات المسؤولين (لإدخال البيانات) ---
+    elif not all_sites:
+        st.warning("⚠️ يجب على المدير إضافة حضيرة أولاً من حسابه.")
+    
+    elif role_id == "Labor":
+        st.header("تسجيل العمال")
+        with st.form("l_f"):
+            name = st.text_input("Name"); hours = st.number_input("Hours"); rate = st.number_input("Rate"); s_choice = st.selectbox("Site", list(all_sites.keys()))
             if st.form_submit_button(T["save"]):
-                session = Session(); session.add(SafetyLog(incident=inc, notes=note, site=s_choice)); session.commit(); session.close(); st.success("✅")
+                session = Session(); session.add(WorkerLog(worker_name=name, hours=hours, hourly_rate=rate, site=s_choice)); session.commit(); session.close(); st.success("✅")
 
     elif role_id == "Store":
-        st.header(T["role_store"])
-        with st.form("store_f"):
-            item = st.text_input("المادة"); qty = st.number_input("الكمية"); t_type = st.radio("النوع", ["Entry", "Exit"])
-            s_choice = st.selectbox("الموقع", list(all_sites.keys()) if all_sites else ["None"])
+        st.header("المخزن")
+        with st.form("s_f"):
+            item = st.text_input("Item"); qty = st.number_input("Qty"); t_type = st.radio("Type", ["Entry", "Exit"]); s_choice = st.selectbox("Site", list(all_sites.keys()))
             if st.form_submit_button(T["save"]):
                 session = Session(); session.add(StoreLog(item=item, qty=qty, trans_type=t_type, site=s_choice)); session.commit(); session.close(); st.success("✅")
 
-    elif role_id == "Labor":
-        st.header(T["role_worker"])
-        with st.form("labor_f"):
-            name = st.text_input("اسم العامل"); h = st.number_input("الساعات"); r = st.number_input("الكلفة")
-            s_choice = st.selectbox("الموقع", list(all_sites.keys()) if all_sites else ["None"])
+    elif role_id == "Safety":
+        st.header("السلامة")
+        with st.form("safe_f"):
+            inc = st.selectbox("Type", ["Normal", "Accident", "Risk"]); note = st.text_area("Notes"); s_choice = st.selectbox("Site", list(all_sites.keys()))
             if st.form_submit_button(T["save"]):
-                session = Session(); session.add(WorkerLog(worker_name=name, hours=h, hourly_rate=r, site=s_choice)); session.commit(); session.close(); st.success("✅")
+                session = Session(); session.add(SafetyLog(incident=inc, notes=note, site=s_choice)); session.commit(); session.close(); st.success("✅")
+
+    elif role_id == "Lab":
+        st.header("المختبر")
+        with st.form("lab_f"):
+            t_name = st.text_input("Test"); res = st.text_input("Result"); stat = st.selectbox("Status", ["مطابق", "غير مطابق"]); s_choice = st.selectbox("Site", list(all_sites.keys()))
+            if st.form_submit_button(T["save"]):
+                session = Session(); session.add(LabLog(test_name=t_name, result=res, status=stat, site=s_choice)); session.commit(); session.close(); st.success("✅")
+
+    elif role_id == "Work":
+        st.header("الأشغال")
+        with st.form("w_f"):
+            s_choice = st.selectbox("Site", list(all_sites.keys())); prog = st.slider("%", 0, 100); note = st.text_area("Notes")
+            if st.form_submit_button(T["save"]):
+                session = Session(); lat, lon = all_sites[s_choice]; session.add(WorkLog(site=s_choice, progress=prog, notes=note, lat=lat, lon=lon)); session.commit(); session.close(); st.success("✅")
