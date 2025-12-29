@@ -57,7 +57,7 @@ class WorkLog(Base):
     user_name = Column(String(100)); lat = Column(Float); lon = Column(Float)
 
 engine = create_engine('sqlite:///egms_bilingual.db')
-Base.metadata.all_all(engine)
+Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 
 # --- 3. واجهة البرنامج الموحدة ---
