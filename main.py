@@ -1,166 +1,131 @@
 import streamlit as st
 import pandas as pd
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, ForeignKey, LargeBinary
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
-from datetime import datetime, timedelta
+from datetime import datetime
 import plotly.express as px
-from sqlalchemy.exc import IntegrityError
+from PIL import Image
+import io
 
-# --- 1. الإعدادات الجمالية والهوية البصرية ---
-st.set_page_config(page_title="EGMS Ultimate ERP v45", layout="wide")
-st.markdown("""
-    <style>
-    .stApp { background-color: #f8fafc; }
-    div.stMetric { background-color: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-top: 5px solid #004a99; }
-    .stButton>button { border-radius: 10px; height: 3em; background-color: #004a99; color: white; font-weight: bold; width: 100%; transition: 0.3s; }
-    .main-header { text-align: center; padding: 20px; background: white; border-radius: 15px; margin-bottom: 25px; border-bottom: 4px solid #004a99; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- 2. هيكلة قاعدة البيانات المتطورة ---
+# --- 1. إعداد قاعدة البيانات الشاملة (v47) ---
 Base = declarative_base()
 
 class Site(Base):
     __tablename__ = 'sites'
     id = Column(Integer, primary_key=True); name = Column(String(100), unique=True); lat = Column(Float); lon = Column(Float)
+    tasks = relationship("SiteTask", back_populates="site_obj", cascade="all, delete-orphan")
 
+class SiteTask(Base):
+    __tablename__ = 'site_tasks'
+    id = Column(Integer, primary_key=True); site_id = Column(Integer, ForeignKey('sites.id'))
+    task_name = Column(String(100)); unit = Column(String(50)); target_qty = Column(Float)
+    site_obj = relationship("Site", back_populates="tasks")
+    logs = relationship("TaskLog", back_populates="task_obj", cascade="all, delete-orphan")
+
+class TaskLog(Base):
+    __tablename__ = 'task_logs'
+    id = Column(Integer, primary_key=True); task_id = Column(Integer, ForeignKey('site_tasks.id'))
+    qty_done = Column(Float); notes = Column(Text); image = Column(LargeBinary) # حقل الصورة الجديد
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    task_obj = relationship("SiteTask", back_populates="logs")
+
+# الجداول الأخرى (HR والمخزن)
 class WorkerProfile(Base):
-    __tablename__ = 'worker_profiles'
-    id = Column(Integer, primary_key=True); name = Column(String(100), unique=True); hourly_rate = Column(Float); work_plan = Column(Text); specialization = Column(String(100))
-    logs = relationship("WorkerLog", back_populates="profile")
-
+    __tablename__ = 'worker_profiles'; id = Column(Integer, primary_key=True); name = Column(String(100), unique=True); hourly_rate = Column(Float); work_plan = Column(Text)
 class WorkerLog(Base):
-    __tablename__ = 'worker_logs'
-    id = Column(Integer, primary_key=True); worker_id = Column(Integer, ForeignKey('worker_profiles.id')); hours = Column(Float); site = Column(String(100)); timestamp = Column(DateTime, default=datetime.utcnow)
-    profile = relationship("WorkerProfile", back_populates="logs")
-
+    __tablename__ = 'worker_logs'; id = Column(Integer, primary_key=True); worker_id = Column(Integer, ForeignKey('worker_profiles.id')); hours = Column(Float); site = Column(String(100)); timestamp = Column(DateTime, default=datetime.utcnow)
 class StoreLog(Base):
-    __tablename__ = 'store_logs'
-    id = Column(Integer, primary_key=True); item = Column(String(100)); unit = Column(String(50)); qty = Column(Float); trans_type = Column(String(20)); site = Column(String(100)); timestamp = Column(DateTime, default=datetime.utcnow)
+    __tablename__ = 'store_logs'; id = Column(Integer, primary_key=True); item = Column(String(100)); unit = Column(String(50)); qty = Column(Float); trans_type = Column(String(20)); site = Column(String(100)); timestamp = Column(DateTime, default=datetime.utcnow)
 
-class WorkLog(Base):
-    __tablename__ = 'work_logs'
-    id = Column(Integer, primary_key=True); site = Column(String(100)); progress = Column(Float); notes = Column(Text); timestamp = Column(DateTime, default=datetime.utcnow)
-
-# محرك القاعدة v45
-engine = create_engine('sqlite:///egms_final_v45.db', connect_args={'check_same_thread': False})
+engine = create_engine('sqlite:///egms_visual_v47.db', connect_args={'check_same_thread': False})
 Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 
-# --- 3. نظام الدخول والحماية ---
+# --- 2. التنسيق والواجهة ---
+st.set_page_config(page_title="EGMS Visual ERP v47", layout="wide")
+st.markdown("""<style> .main-header { text-align: center; padding: 20px; background: white; border-radius: 15px; border-bottom: 5px solid #004a99; box-shadow: 0 2px 4px rgba(0,0,0,0.1); } .stImage > img { border-radius: 10px; transition: 0.3s; } .stImage > img:hover { transform: scale(1.02); } </style>""", unsafe_allow_html=True)
+
+# --- 3. نظام الدخول ---
 if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
 
 if not st.session_state["logged_in"]:
-    st.markdown("<div class='main-header'><h1>🏗️ EGMS DIGITAL ERP</h1><p>الإصدار البلاتيني الموحد v45</p></div>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1,2,1])
-    with col2:
-        u = st.text_input("User"); p = st.text_input("Pass", type="password")
-        if st.button("LOGIN"):
-            acc = {"admin": ("egms2025", "Admin"), "labor": ("labor2025", "Labor"), "magaza": ("store2025", "Store"), "work": ("work2025", "Work")}
-            if u in acc and p == acc[u][0]:
-                st.session_state.update({"logged_in": True, "role": acc[u][1]}); st.rerun()
-            else: st.error("Invalid Credentials")
+    st.markdown("<div class='main-header'><h1>🏗️ EGMS DIGITAL ERP</h1><p>التوثيق البصري وإدارة الكميات v47</p></div>", unsafe_allow_html=True)
+    u = st.text_input("Username"); p = st.text_input("Password", type="password")
+    if st.button("LOGIN"):
+        acc = {"admin": ("egms2025", "Admin"), "work": ("work2025", "Work"), "labor": ("labor2025", "Labor"), "magaza": ("store2025", "Store")}
+        if u in acc and p == acc[u][0]: st.session_state.update({"logged_in": True, "role": acc[u][1]}); st.rerun()
 else:
-    role = st.session_state["role"]
+    role = st.session_state["role"]; session = Session()
     st.sidebar.markdown(f"### 👤 {role}")
     if st.sidebar.button("Logout"): st.session_state.clear(); st.rerun()
-    
-    session = Session()
-    all_sites = {x.name: (x.lat, x.lon) for x in session.query(Site).all()}
 
-    # --- 4. واجهة المدير العام (Admin Hub) ---
+    # --- 4. واجهة المدير (المراقبة البصرية) ---
     if role == "Admin":
-        st.markdown("<div class='main-header'><h2>📊 لوحة تحكم القيادة والتحليل</h2></div>", unsafe_allow_html=True)
-        
-        # 1. جلب البيانات للتحليل
-        df_labor_logs = pd.read_sql(session.query(WorkerLog).statement, session.bind)
-        df_profiles = pd.read_sql(session.query(WorkerProfile).statement, session.bind)
-        df_progress = pd.read_sql(session.query(WorkLog).statement, session.bind)
-        
-        # 2. البطاقات الإحصائية
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("عدد المواقع", len(all_sites))
-        
-        total_payroll = 0
-        if not df_labor_logs.empty:
-            merged = pd.merge(df_labor_logs, df_profiles, left_on='worker_id', right_on='id')
-            total_payroll = (merged['hours'] * merged['hourly_rate']).sum()
-        m2.metric("إجمالي الرواتب", f"{total_payroll:,.0f} TND")
-        
-        avg_prog = df_progress['progress'].mean() if not df_progress.empty else 0
-        m3.metric("متوسط الإنجاز", f"{avg_prog:.1f}%")
-        m4.metric("حالة النظام", "نشط ✅")
+        st.markdown("<div class='main-header'><h2>📊 مركز المراقبة والتحليل البصري</h2></div>", unsafe_allow_html=True)
+        t = st.tabs(["🏗️ متابعة الإنجاز بالصور", "👷 العمال", "📦 المخزن", "⚙️ الإعدادات & المهام"])
 
-        tabs = st.tabs(["📍 الخريطة", "👷 إدارة العمال (HR)", "📦 المخزون", "🏗️ سير الأشغال", "⚙️ الإعدادات"])
+        with t[0]: # متابعة الإنجاز مع الصور
+            tasks = session.query(SiteTask).all()
+            if tasks:
+                for task in tasks:
+                    total_done = sum(log.qty_done for log in task.logs)
+                    prog = (total_done / task.target_qty) * 100
+                    with st.expander(f"📍 {task.site_obj.name} | {task.task_name} ({prog:.1f}%)"):
+                        col_txt, col_img = st.columns([2, 1])
+                        with col_txt:
+                            st.write(f"**المطلوب:** {task.target_qty} {task.unit}")
+                            st.write(f"**المنجز:** {total_done} {task.unit}")
+                            st.progress(min(prog/100, 1.0))
+                            # عرض الملاحظات الأخيرة
+                            for log in task.logs[-3:]: # آخر 3 ملاحظات
+                                st.caption(f"📅 {log.timestamp.strftime('%Y-%m-%d')} | 📝 {log.notes}")
+                        with col_img:
+                            # عرض آخر صورة تم رفعها لهذه المرحلة
+                            last_log_with_img = session.query(TaskLog).filter(TaskLog.task_id == task.id, TaskLog.image != None).order_by(TaskLog.timestamp.desc()).first()
+                            if last_log_with_img:
+                                st.image(last_log_with_img.image, caption="أحدث صورة من الموقع", use_container_width=True)
+                            else: st.info("لا توجد صور")
+            else: st.info("لا توجد مهام معرفة.")
 
-        with tabs[0]: # الخريطة
-            df_s = pd.read_sql(session.query(Site).statement, session.bind)
-            if not df_s.empty: st.map(df_s, latitude='lat', longitude='lon')
+        with t[3]: # الإعدادات والمهام
+            col1, col2 = st.columns(2)
+            with col1:
+                st.subheader("إضافة حضيرة")
+                n = st.text_input("اسم الحضيرة"); la = st.number_input("Lat", value=36.0); lo = st.number_input("Lon", value=10.0)
+                if st.button("حفظ الحضيرة"):
+                    try: session.add(Site(name=n, lat=la, lon=lo)); session.commit(); st.rerun()
+                    except: st.error("موجودة!")
+            with col2:
+                st.subheader("تعريف مرحلة عمل")
+                sites = session.query(Site).all()
+                if sites:
+                    with st.form("task_f"):
+                        s_id = st.selectbox("الحضيرة", [s.id for s in sites], format_func=lambda x: next(s.name for s in sites if s.id == x))
+                        tn = st.text_input("اسم المرحلة"); tu = st.selectbox("الوحدة", ["m3", "m2", "Tonne", "Sac"]); tq = st.number_input("الكمية")
+                        if st.form_submit_button("حفظ المرحلة"):
+                            session.add(SiteTask(site_id=s_id, task_name=tn, unit=tu, target_qty=tq)); session.commit(); st.rerun()
 
-        with tabs[1]: # HR المتقدم
-            st.subheader("إدارة ملفات العمال (Profile Management)")
-            with st.form("add_worker"):
-                col_a, col_b = st.columns(2)
-                wn = col_a.text_input("اسم العامل الجديد")
-                wr = col_b.number_input("سعر الساعة (TND)")
-                wp = st.text_area("خطة العمل والمهام")
-                if st.form_submit_button("حفظ الملف الشخصي"):
-                    try:
-                        session.add(WorkerProfile(name=wn, hourly_rate=wr, work_plan=wp))
-                        session.commit(); st.success("تم الحفظ"); st.rerun()
-                    except: session.rollback(); st.error("الاسم موجود مسبقاً")
-            st.write("العمال المسجلون:")
-            st.dataframe(df_profiles, use_container_width=True)
-
-        with tabs[2]: # المخزن
-            st.subheader("📦 رصيد المواد المتاح")
-            df_st = pd.read_sql(session.query(StoreLog).statement, session.bind)
-            if not df_st.empty:
-                df_st['net'] = df_st.apply(lambda x: x['qty'] if x['trans_type'] == "Entry" else -x['qty'], axis=1)
-                st.table(df_st.groupby(['item', 'unit'])['net'].sum().reset_index().rename(columns={'net':'الكمية'}))
-
-        with tabs[4]: # الإعدادات وتصدير البيانات
-            st.subheader("⚙️ إعدادات النظام")
-            if st.button("📥 تحميل كافة البيانات (Excel)"):
-                st.info("هذه الميزة ستقوم بتصدير الجداول للتحليل الخارجي")
-                st.download_button("تحميل سجل العمال", df_labor_logs.to_csv(), "workers.csv")
-                st.download_button("تحميل سجل الأشغال", df_progress.to_csv(), "progress.csv")
-
-    # --- 5. واجهة مسؤول العمال (Labor) ---
-    elif role == "Labor":
-        st.header("👷 تسجيل ساعات العمل اليومية")
-        profiles = session.query(WorkerProfile).all()
-        if not profiles: st.warning("يجب على المدير تسجيل العمال أولاً.")
-        else:
-            with st.form("l_log"):
-                w_choice = st.selectbox("اسم العامل", [p.name for p in profiles])
-                h = st.number_input("الساعات", min_value=0.5)
-                s = st.selectbox("الموقع", list(all_sites.keys()))
-                if st.form_submit_button("تسجيل"):
-                    p_obj = session.query(WorkerProfile).filter_by(name=w_choice).first()
-                    session.add(WorkerLog(worker_id=p_obj.id, hours=h, site=s))
-                    session.commit(); st.success("✅ تم التسجيل")
-
-    # --- 6. واجهة مسؤول المغازة (Store) ---
-    elif role == "Store":
-        st.header("📦 إدارة المغازة")
-        with st.form("st_f"):
-            item = st.text_input("المادة"); unit = st.selectbox("الوحدة", ["كيس", "طن", "كغ", "متر"])
-            qty = st.number_input("الكمية"); t = st.radio("العملية", ["Entry", "Exit"])
-            s = st.selectbox("الموقع", list(all_sites.keys()))
-            if st.form_submit_button("حفظ"):
-                session.add(StoreLog(item=item, unit=unit, qty=qty, trans_type=t, site=s))
-                session.commit(); st.success("✅")
-
-    # --- 7. واجهة مسؤول الأشغال (Work) ---
+    # --- 5. واجهة مسؤول الأشغال (رفع الصور) ---
     elif role == "Work":
-        st.header("🏗️ تقرير الإنجاز الميداني")
-        with st.form("wk_f"):
-            s = st.selectbox("الموقع", list(all_sites.keys()))
-            p = st.slider("% الإنجاز", 0, 100); n = st.text_area("ملاحظات")
-            if st.form_submit_button("إرسال"):
-                session.add(WorkLog(site=s, progress=p, notes=n))
-                session.commit(); st.success("✅")
+        st.header("🏗️ تقرير الإنجاز اليومي + صورة")
+        sites = session.query(Site).all()
+        if sites:
+            s_choice = st.selectbox("اختر الحضيرة", sites, format_func=lambda x: x.name)
+            tasks = session.query(SiteTask).filter_by(site_id=s_choice.id).all()
+            if tasks:
+                with st.form("work_report"):
+                    task_choice = st.selectbox("المرحلة", tasks, format_func=lambda x: x.task_name)
+                    qty = st.number_input(f"الكمية المنجزة اليوم ({task_choice.unit})", min_value=0.1)
+                    note = st.text_area("وصف العمل المنجز")
+                    uploaded_file = st.file_uploader("📸 التقط صورة أو ارفع صورة للعمل المنجز", type=['jpg', 'png', 'jpeg'])
+                    
+                    if st.form_submit_button("إرسال التقرير الموثق"):
+                        img_bytes = None
+                        if uploaded_file:
+                            img_bytes = uploaded_file.getvalue()
+                        session.add(TaskLog(task_id=task_choice.id, qty_done=qty, notes=note, image=img_bytes))
+                        session.commit(); st.success("✅ تم إرسال التقرير بنجاح مع الصورة!")
+            else: st.warning("لا توجد مهام لهذه الحضيرة.")
 
     session.close()
