@@ -32,19 +32,33 @@ engine = create_engine('sqlite:///egms_final_v15.db')
 Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 
-# --- 2. القاموس اللغوي ---
+# --- 2. القاموس اللغوي (تم تصحيح الفصلة هنا) ---
 LANG = {
     "العربية": {
-        "title": "نظام EGMS الرقمي", "login": "دخول", "user": "المستخدم", "pwd": "الرمز",
-        "role_dir": "المدير العام", "worker_tab": "ميزانية العمالة", "stock_tab": "المخزن",
-        "download": "تحميل التقرير قبل المسح", "archive_btn": "أرشفة ومسح البيانات نهائياً",
-        "confirm_msg": "أوافق على مسح كافة البيانات المسجلة"، "success_arch": "تمت أرشفة البيانات وتصفير السجل بنجاح"
+        "title": "نظام EGMS الرقمي", 
+        "login": "دخول", 
+        "user": "المستخدم", 
+        "pwd": "الرمز",
+        "role_dir": "المدير العام", 
+        "worker_tab": "ميزانية العمالة", 
+        "stock_tab": "المخزن",
+        "download": "تحميل التقرير قبل المسح", 
+        "archive_btn": "أرشفة ومسح البيانات نهائياً",
+        "confirm_msg": "أوافق على مسح كافة البيانات المسجلة", 
+        "success_arch": "تمت أرشفة البيانات وتصفير السجل بنجاح"
     },
     "Français": {
-        "title": "Système Digital EGMS", "login": "Connexion", "user": "ID", "pwd": "Pass",
-        "role_dir": "Directeur", "worker_tab": "Budget RH", "stock_tab": "Stock",
-        "download": "Télécharger avant suppression", "archive_btn": "Archiver et Réinitialiser",
-        "confirm_msg": "Je confirme la suppression définitive", "success_arch": "Données archivées avec succès"
+        "title": "Système Digital EGMS", 
+        "login": "Connexion", 
+        "user": "ID", 
+        "pwd": "Pass",
+        "role_dir": "Directeur", 
+        "worker_tab": "Budget RH", 
+        "stock_tab": "Stock",
+        "download": "Télécharger avant suppression", 
+        "archive_btn": "Archiver et Réinitialiser",
+        "confirm_msg": "Je confirme la suppression définitive", 
+        "success_arch": "Données archivées avec succès"
     }
 }
 
@@ -55,7 +69,8 @@ T = LANG[sel_lang]
 # --- 3. نظام الدخول ---
 if "logged_in" not in st.session_state:
     st.title(T["login"])
-    u = st.text_input(T["user"]); p = st.text_input(T["pwd"], type="password")
+    u = st.text_input(T["user"])
+    p = st.text_input(T["pwd"], type="password")
     if st.button("🚀"):
         if u == "admin" and p == "egms2025":
             st.session_state.update({"logged_in": True, "role": T["role_dir"]})
@@ -63,28 +78,27 @@ if "logged_in" not in st.session_state:
 else:
     role = st.session_state.get("role")
     st.sidebar.write(f"👤 {role}")
-    if st.sidebar.button("Logout"): st.session_state.clear(); st.rerun()
+    if st.sidebar.button("Logout"): 
+        st.session_state.clear()
+        st.rerun()
 
-    # --- 4. واجهة المدير (مع ميزة الأرشفة) ---
+    # --- 4. واجهة المدير ---
     if role == T["role_dir"]:
         st.title(f"🏗️ {T['title']}")
         tab_workers, tab_stock = st.tabs([T["worker_tab"], T["stock_tab"]])
         
         session = Session()
         
-        # --- قسم العمال ---
         with tab_workers:
             df_w = pd.read_sql(session.query(WorkerLog).statement, session.bind)
             if not df_w.empty:
                 df_w['Total'] = df_w['hours'] * df_w['hourly_rate']
                 st.metric("إجمالي الرواتب", f"{df_w['Total'].sum():,.2f} TND")
                 
-                # 1. التحميل أولاً
                 csv = df_w.to_csv(index=False).encode('utf-8-sig')
                 st.download_button(label=f"📥 {T['download']}", data=csv, file_name="payroll_backup.csv", mime="text/csv")
                 
                 st.divider()
-                # 2. الأرشفة (مع قفل أمان)
                 st.warning("⚠️ منطقة خطرة: مسح البيانات لا يمكن الرجوع عنه")
                 confirm = st.checkbox(T["confirm_msg"])
                 if st.button(T["archive_btn"], disabled=not confirm):
@@ -94,9 +108,9 @@ else:
                     st.rerun()
                 
                 st.dataframe(df_w, use_container_width=True)
-            else: st.info("السجل فارغ حالياً")
+            else: 
+                st.info("السجل فارغ حالياً")
 
-        # --- قسم المخزن ---
         with tab_stock:
             df_s = pd.read_sql(session.query(StoreLog).statement, session.bind)
             if not df_s.empty:
@@ -105,9 +119,11 @@ else:
                 
                 if st.checkbox("تأكيد مسح سجل المخزن"):
                     if st.button("تصفير المخزن"):
-                        session.query(StoreLog).delete(); session.commit(); st.rerun()
+                        session.query(StoreLog).delete()
+                        session.commit()
+                        st.rerun()
                 st.dataframe(df_s, use_container_width=True)
+            else:
+                st.info("المخزن فارغ")
         
         session.close()
-
-    # (واجهات المسؤولين الآخرين تبقى كما هي لإدخال البيانات)
