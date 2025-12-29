@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text
@@ -19,13 +20,14 @@ class WorkLog(Base):
     __tablename__ = 'work_logs'
     id = Column(Integer, primary_key=True)
     site = Column(String(100)); progress = Column(Float); notes = Column(Text)
-    timestamp = Column(DateTime, default=datetime.utcnow); lat = Column(Float); lon = Column(Float)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    lat = Column(Float); lon = Column(Float)
 
 class StoreLog(Base):
     __tablename__ = 'store_logs'
     id = Column(Integer, primary_key=True)
     item = Column(String(100)); unit = Column(String(50)); qty = Column(Float)
-    price = Column(Float); trans_type = Column(String(20)); site = Column(String(100))
+    trans_type = Column(String(20)); site = Column(String(100))
     timestamp = Column(DateTime, default=datetime.utcnow)
 
 class SafetyLog(Base):
@@ -36,10 +38,10 @@ class SafetyLog(Base):
 class EquipmentLog(Base):
     __tablename__ = 'equipment_logs'
     id = Column(Integer, primary_key=True)
-    machine_name = Column(String(100)); work_hours = Column(Float); machine_status = Column(String(50))
+    machine_name = Column(String(100)); work_hours = Column(Float)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
-engine = create_engine('sqlite:///egms_final_stable.db')
+engine = create_engine('sqlite:///egms_final_v11.db')
 Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 
@@ -47,17 +49,15 @@ Session = sessionmaker(bind=engine)
 LANG = {
     "العربية": {
         "title": "نظام EGMS الرقمي", "login": "دخول", "user": "المستخدم", "pwd": "الرمز",
-        "role_dir": "المدير العام", "dash": "لوحة القيادة", "alerts": "التنبيهات العاجلة",
-        "add_site": "إضافة موقع حضيرة", "site_name": "اسم الموقع", "save": "حفظ",
+        "role_dir": "المدير العام", "dash": "لوحة القيادة", "add_site": "إدارة المواقع",
         "map": "الخريطة", "stock": "المخزن", "equip": "المعدات", "safe": "الأمن",
-        "item": "المادة", "qty": "الكمية", "total": "الرصيد المتوفر", "in": "دخول", "out": "خروج"
+        "report": "تقرير الإنجاز", "save": "حفظ", "item": "المادة", "qty": "الكمية"
     },
     "Français": {
         "title": "EGMS Digital System", "login": "Connexion", "user": "ID", "pwd": "Pass",
-        "role_dir": "Directeur", "dash": "Dashboard", "alerts": "Alertes Critiques",
-        "add_site": "Ajouter un Site", "site_name": "Nom du Site", "save": "Enregistrer",
+        "role_dir": "Directeur", "dash": "Dashboard", "add_site": "Gestion des Sites",
         "map": "Carte", "stock": "Stock", "equip": "Engins", "safe": "Sécurité",
-        "item": "Article", "qty": "Quantité", "total": "Stock Actuel", "in": "Entrée", "out": "Sortie"
+        "report": "Rapport Travaux", "save": "Enregistrer", "item": "Article", "qty": "Quantité"
     }
 }
 
@@ -65,8 +65,7 @@ st.set_page_config(page_title="EGMS Smart System", layout="wide")
 sel_lang = st.sidebar.selectbox("🌐", ["Français", "العربية"])
 T = LANG[sel_lang]
 
-# دالة جلب المواقع
-def get_sites():
+def get_sites_dict():
     session = Session()
     s = session.query(Site).all()
     session.close()
@@ -77,40 +76,78 @@ if "logged_in" not in st.session_state:
     st.title(T["login"])
     u = st.text_input(T["user"]); p = st.text_input(T["pwd"], type="password")
     if st.button("🚀 Enter"):
-        access = {"admin": ("egms2025", T["role_dir"]), "magaza": ("store2025", "Store"), "safety": ("safe2025", "Safety"), "equip": ("equip2025", "Equip")}
+        access = {"admin": ("egms2025", T["role_dir"]), "magaza": ("store2025", "Store"), "safety": ("safe2025", "Safety"), "equip": ("equip2025", "Equip"), "work": ("work2025", "Work")}
         if u in access and p == access[u][0]:
-            st.session_state.update({"logged_in": True, "role": access[u][1], "u_id": u})
+            st.session_state.update({"logged_in": True, "role": access[u][1]})
             st.rerun()
 else:
     role = st.session_state.get("role")
     st.sidebar.write(f"👤 {role}")
     if st.sidebar.button("Logout"): st.session_state.clear(); st.rerun()
 
-    # --- 4. واجهة المدير (إدارة المواقع + الرقابة) ---
+    all_sites = get_sites_dict()
+
+    # --- 4. واجهة المدير ---
     if role == T["role_dir"]:
         st.title(T["dash"])
-        
-        # قسم التنبيهات
-        session = Session()
-        st.subheader(T["alerts"])
-        # تنبيه المعدات
-        over_h = session.query(EquipmentLog).filter(EquipmentLog.work_hours > 250).all()
-        for m in over_h: st.error(f"🚨 {m.machine_name}: {m.work_hours}H - Maintenance Required!")
-        
-        tab_map, tab_sites, tab_stock = st.tabs([T["map"], T["add_site"], T["stock"]])
+        tab_map, tab_stock, tab_sites = st.tabs([T["map"], T["stock"], T["add_site"]])
         
         with tab_sites:
-            with st.form("site_form"):
-                n = st.text_input(T["site_name"])
+            st.subheader(T["add_site"])
+            with st.form("site_f"):
+                n = st.text_input("Site Name / اسم الموقع")
                 c1, c2 = st.columns(2)
                 la = c1.number_input("Lat", value=36.0, format="%.6f")
                 lo = c2.number_input("Lon", value=10.0, format="%.6f")
                 if st.form_submit_button(T["save"]):
-                    new_s = Site(name=n, lat=la, lon=lo)
-                    session.add(new_s); session.commit(); st.success("Site Added!")
-        
+                    session = Session()
+                    session.add(Site(name=n, lat=la, lon=lo))
+                    session.commit(); session.close(); st.success("Site Added!"); st.rerun()
+
         with tab_stock:
+            session = Session()
             df_s = pd.read_sql(session.query(StoreLog).statement, session.bind)
             if not df_s.empty:
                 df_s['val'] = df_s.apply(lambda x: x['qty'] if x['trans_type'] == "Entry" else -x['qty'], axis=1)
-                summary
+                summary = df_s.groupby('item').agg({'val': 'sum'}).reset_index()
+                st.plotly_chart(px.bar(summary, x='item', y='val', title="Inventory Levels"), use_container_width=True)
+            else: st.info("No stock data yet.")
+            session.close()
+
+        with tab_map:
+            session = Session()
+            df_w = pd.read_sql(session.query(WorkLog).statement, session.bind)
+            if not df_w.empty:
+                st.map(df_w, latitude='lat', longitude='lon')
+                st.dataframe(df_w)
+            else: st.info("No work reports (map points) yet.")
+            session.close()
+
+    # --- 5. واجهات المسؤولين ---
+    elif not all_sites:
+        st.warning("Admin must add a Site first! / يجب على المدير إضافة موقع أولاً")
+    else:
+        # واجهة تقارير العمل (لتغذية الخريطة)
+        if role == "Work":
+            st.header(T["report"])
+            with st.form("w_f"):
+                s_choice = st.selectbox("Site", list(all_sites.keys()))
+                prog = st.slider("Progress %", 0, 100)
+                note = st.text_area("Notes")
+                if st.form_submit_button(T["save"]):
+                    session = Session()
+                    lat, lon = all_sites[s_choice]
+                    session.add(WorkLog(site=s_choice, progress=prog, notes=note, lat=lat, lon=lon))
+                    session.commit(); session.close(); st.success("Report Sent!")
+
+        # واجهة المغازة (لتغذية المخزون)
+        elif role == "Store":
+            st.header(T["stock"])
+            with st.form("s_f"):
+                item = st.text_input(T["item"])
+                qty = st.number_input(T["qty"], min_value=0.1)
+                t_type = st.radio("Type", ["Entry", "Exit"])
+                if st.form_submit_button(T["save"]):
+                    session = Session()
+                    session.add(StoreLog(item=item, qty=qty, trans_type=t_type))
+                    session.commit(); session.close(); st.success("Saved!")
