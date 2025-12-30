@@ -1,131 +1,111 @@
 import streamlit as st
 import pandas as pd
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship, scoped_session
+from sqlalchemy.orm import sessionmaker, scoped_session
 from datetime import datetime
 import plotly.express as px
 
-# --- 1. هيكلة قاعدة البيانات (v75) ---
+# --- 1. إعدادات قاعدة البيانات (Web Database) ---
 Base = declarative_base()
+class Item(Base):
+    __tablename__ = 'items'
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), nullable=False)
+    category = Column(String(100))
+    quantity = Column(Float)
+    unit = Column(String(50))
+    location = Column(String(100))
+    last_updated = Column(DateTime, default=datetime.utcnow)
 
-class InventoryItem(Base):
-    __tablename__ = 'inventory'
-    id = Column(Integer, primary_key=True); name = Column(String(100), unique=True); unit = Column(String(50)); total_qty = Column(Float, default=0.0)
-
-class WorkerProfile(Base):
-    __tablename__ = 'worker_profiles'
-    id = Column(Integer, primary_key=True); name = Column(String(100), unique=True); work_plan = Column(Text)
-
-class HandoverLog(Base):
-    __tablename__ = 'handover_logs'
-    id = Column(Integer, primary_key=True); worker_name = Column(String(100)); item_name = Column(String(100)); qty = Column(Float); timestamp = Column(DateTime, default=datetime.utcnow)
-
-class TransactionHistory(Base):
-    __tablename__ = 'transaction_history'
-    id = Column(Integer, primary_key=True); item_name = Column(String(100)); qty = Column(Float); type = Column(String(50)); person = Column(String(100)); timestamp = Column(DateTime, default=datetime.utcnow)
-
-# الاتصال بقاعدة بيانات جديدة ومستقرة
-DB_URL = "sqlite:///egms_v75_final.db"
-engine = create_engine(DB_URL, connect_args={'check_same_thread': False})
+engine = create_engine('sqlite:///web_inventory.db', connect_args={'check_same_thread': False})
 Base.metadata.create_all(engine)
 Session = scoped_session(sessionmaker(bind=engine, expire_on_commit=False))
 
-# --- 2. التصميم الجمالي ---
-st.set_page_config(page_title="EGMS ERP v75", layout="wide")
+# --- 2. واجهة المستخدم (التصميم الجذاب) ---
+st.set_page_config(page_title="EGMS Web Inventory", layout="wide")
+
 st.markdown("""
     <style>
-    .stApp { background-color: #f8f9fa; }
-    h1, h2 { color: #003366; }
-    div[data-testid="metric-container"] {
-        background-color: white; border-radius: 10px; padding: 15px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 5px solid #003366;
-    }
+    .stApp { background-color: #f4f7f9; }
+    .metric-card { background-color: white; padding: 20px; border-radius: 12px; border-left: 6px solid #003366; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    h1 { color: #003366; font-family: 'Segoe UI'; }
     </style>
     """, unsafe_allow_html=True)
 
 # --- 3. نظام الدخول ---
-if "logged_in" not in st.session_state or not st.session_state["logged_in"]:
-    st.markdown("<h1 style='text-align:center;'>🏗️ EGMS Digital ERP v75</h1>", unsafe_allow_html=True)
-    c1, c2, c3 = st.columns([1,2,1])
-    with c2:
-        u = st.text_input("Username"); p = st.text_input("Password", type="password")
-        if st.button("دخول"):
-            acc = {"admin": ("egms2025", "Admin"), "magaza": ("store2025", "Store")}
-            if u in acc and p == acc[u][0]:
-                st.session_state.update({"logged_in": True, "role": acc[u][1]})
-                st.rerun()
-            else: st.error("❌ بيانات خاطئة")
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.title("🏗️ تسجيل الدخول للمنظومة")
+    user = st.text_input("اسم المستخدم")
+    pw = st.text_input("كلمة المرور", type="password")
+    if st.button("دخول"):
+        if user == "admin" and pw == "egms2025":
+            st.session_state.authenticated = True
+            st.rerun()
+        else: st.error("❌ بيانات خاطئة")
 else:
-    role = st.session_state["role"]; session = Session()
-    st.sidebar.markdown(f"### 👤 {role}")
-    if st.sidebar.button("تسجيل الخروج"): st.session_state.clear(); st.rerun()
+    session = Session()
+    st.sidebar.title("🛠️ التحكم")
+    page = st.sidebar.radio("انتقل إلى:", ["لوحة التحليل (Dashboard)", "إدارة الجرد (Inventory)", "إضافة سلع جديدة"])
 
-    # جلب البيانات الحالية
-    df_inv = pd.read_sql(session.query(InventoryItem).statement, session.bind)
-    df_hist = pd.read_sql(session.query(TransactionHistory).statement, session.bind)
-    df_workers = pd.read_sql(session.query(WorkerProfile).statement, session.bind)
-    
-    if not df_hist.empty:
-        df_hist['timestamp'] = pd.to_datetime(df_hist['timestamp'])
+    # جلب البيانات
+    df = pd.read_sql(session.query(Item).statement, session.bind)
 
-    # --- واجهة المدير ---
-    if role == "Admin":
-        st.title("📊 لوحة القيادة العامة")
+    # --- صفحة التحليل (Dashboard) ---
+    if page == "لوحة التحليل (Dashboard)":
+        st.title("📊 لوحة تحليلات المغازة")
         
-        # عرض الحالة إذا كانت المنظومة فارغة
-        if df_inv.empty and df_workers.empty:
-            st.warning("⚠️ المنظومة فارغة حالياً لأنها قاعدة بيانات جديدة. يرجى الدخول بحساب 'magaza' لإضافة العمال والمواد.")
+        # بطاقات KPI
+        c1, c2, c3 = st.columns(3)
+        with c1: st.markdown(f'<div class="metric-card"><h3>إجمالي الأصناف</h3><h2>{len(df)}</h2></div>', unsafe_allow_html=True)
+        with c2: st.markdown(f'<div class="metric-card"><h3>قطع المخزن</h3><h2>{df["quantity"].sum() if not df.empty else 0}</h2></div>', unsafe_allow_html=True)
+        with c3: st.markdown(f'<div class="metric-card"><h3>آخر تحديث</h3><h5>{datetime.now().strftime("%Y-%m-%d")}</h5></div>', unsafe_allow_html=True)
+
+        if not df.empty:
+            st.divider()
+            col_a, col_b = st.columns(2)
+            fig1 = px.bar(df, x='name', y='quantity', color='category', title="توزيع الكميات حسب الصنف")
+            col_a.plotly_chart(fig1, use_container_width=True)
+            
+            fig2 = px.pie(df, values='quantity', names='category', hole=0.4, title="نسبة الفئات في المخزن")
+            col_b.plotly_chart(fig2, use_container_width=True)
+
+    # --- صفحة إدارة الجرد (Inventory) ---
+    elif page == "إدارة الجرد (Inventory)":
+        st.title("📋 سجل الجرد التفصيلي")
+        search = st.text_input("🔍 ابحث عن سلعة بالاسم...")
+        if search:
+            display_df = df[df['name'].str.contains(search, case=False)]
+        else:
+            display_df = df
         
-        m1, m2, m3 = st.columns(3)
-        m1.metric("المواد بالمخزن", len(df_inv))
-        m2.metric("عدد العمال", len(df_workers))
-        m3.metric("عمليات اليوم", len(df_hist) if not df_hist.empty else 0)
-
-        tabs = st.tabs(["📈 التحليلات", "📋 الجرد التفصيلي"])
-        with tabs[0]:
-            if not df_inv.empty:
-                st.plotly_chart(px.bar(df_inv, x='name', y='total_qty', title="رصيد المخزن"), use_container_width=True)
-            else: st.info("لا توجد رسوم بيانية للعرض؛ قم بإضافة بيانات أولاً.")
-
-    # --- واجهة المغازة ---
-    elif role == "Store":
-        st.title("📦 عمليات المغازة")
-        m_tabs = st.tabs(["📥 تسجيل مواد", "👷 إدارة العمال", "🤝 تسليم عُهدة", "🔙 استرجاع"])
+        st.dataframe(display_df, use_container_width=True)
         
-        with m_tabs[0]: # تسجيل المواد
-            with st.form("entry_v75"):
-                it = st.text_input("اسم المادة"); un = st.selectbox("الوحدة", ["كيس", "قطعة", "كغ"])
-                qt = st.number_input("الكمية", min_value=0.1)
-                if st.form_submit_button("حفظ"):
-                    exist = session.query(InventoryItem).filter_by(name=it).first()
-                    if exist: exist.total_qty += qt
-                    else: session.add(InventoryItem(name=it, unit=un, total_qty=qt))
-                    session.add(TransactionHistory(item_name=it, qty=qt, type="Entry", person="Store"))
-                    session.commit(); st.success("✅ تم التسجيل"); st.rerun()
+        # تصدير البيانات (متطلب تحليل البيانات ✅)
+        csv = display_df.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 تحميل سجل الجرد (CSV)", csv, "inventory_report.csv", "text/csv")
 
-        with m_tabs[1]: # إدارة العمال
-            with st.form("worker_v75"):
-                wn = st.text_input("اسم العامل"); wp = st.text_area("خطة العمل")
-                if st.form_submit_button("إضافة عامل"):
-                    session.add(WorkerProfile(name=wn, work_plan=wp))
-                    session.commit(); st.success("✅ تم الإضافة"); st.rerun()
-            st.dataframe(df_workers, use_container_width=True)
+    # --- صفحة إضافة سلع ---
+    elif page == "إضافة سلع جديدة":
+        st.title("📥 تسجيل سلع ومعدات")
+        with st.form("add_form"):
+            name = st.text_input("اسم السلعة")
+            cat = st.selectbox("الفئة", ["معدات ثقيلة", "مواد بناء", "أدوات يدوية", "أخرى"])
+            qty = st.number_input("الكمية", min_value=0.0)
+            unit = st.text_input("الوحدة (كغ، قطعة...)")
+            loc = st.text_input("مكان التخزين (الرف/المستودع)")
+            
+            if st.form_submit_button("حفظ في قاعدة البيانات"):
+                new_item = Item(name=name, category=cat, quantity=qty, unit=unit, location=loc)
+                session.add(new_item)
+                session.commit()
+                st.success(f"✅ تم إضافة {name} بنجاح!")
+                st.rerun()
 
-        with m_tabs[2]: # تسليم عُهدة
-            if not df_inv.empty and not df_workers.empty:
-                with st.form("handover_v75"):
-                    item_sel = st.selectbox("المادة/المعدة", df_inv['name'])
-                    worker_sel = st.selectbox("العامل المستلم", df_workers['name'])
-                    qty_sel = st.number_input("الكمية", min_value=1.0)
-                    if st.form_submit_button("تأكيد التسليم"):
-                        item_obj = session.query(InventoryItem).filter_by(name=item_sel).first()
-                        if item_obj.total_qty >= qty_sel:
-                            item_obj.total_qty -= qty_sel
-                            session.add(HandoverLog(worker_name=worker_sel, item_name=item_sel, qty=qty_sel))
-                            session.add(TransactionHistory(item_name=item_sel, qty=qty_sel, type="Handover", person=worker_sel))
-                            session.commit(); st.success("✅ تم التسليم"); st.rerun()
-                        else: st.error("الكمية غير كافية!")
-            else: st.warning("يجب إضافة مواد وعمال أولاً.")
-
+    if st.sidebar.button("تسجيل الخروج"):
+        st.session_state.authenticated = False
+        st.rerun()
     Session.remove()
