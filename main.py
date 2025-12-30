@@ -7,111 +7,156 @@ from fpdf import FPDF
 from datetime import datetime
 import io
 
-# --- 1. إعدادات قاعدة البيانات (إصلاح الخلل) ---
+# --- 1. إعدادات قاعدة البيانات (v79) ---
 def setup_database():
-    conn = sqlite3.connect("web_store_inventory.db", check_same_thread=False)
+    conn = sqlite3.connect("egms_v79_final.db", check_same_thread=False)
     cursor = conn.cursor()
-    # التأكد من إنشاء الجدول قبل أي عملية قراءة
+    # جدول المواد
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
+            name TEXT NOT NULL UNIQUE,
             category TEXT,
-            quantity REAL,
+            quantity REAL DEFAULT 0,
             unit TEXT,
-            location TEXT,
-            date_added TEXT
+            location TEXT
+        )
+    """)
+    # جدول العمال
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS workers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            work_plan TEXT
+        )
+    """)
+    # جدول السجل التاريخي (Transactions)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_name TEXT,
+            qty REAL,
+            type TEXT,
+            person TEXT,
+            timestamp TEXT
         )
     """)
     conn.commit()
     conn.close()
 
-# استدعاء الدالة فور تشغيل التطبيق
 setup_database()
 
-def get_data():
-    conn = sqlite3.connect("web_store_inventory.db", check_same_thread=False)
-    df = pd.read_sql("SELECT * FROM items", conn)
-    conn.close()
-    return df
+def get_db_connection():
+    return sqlite3.connect("egms_v79_final.db", check_same_thread=False)
 
-# --- 2. دالة توليد تقرير PDF احترافي ---
-def generate_inventory_pdf(df, fig):
+# --- 2. محرك تقارير PDF ---
+def generate_pdf(df, fig):
     pdf = FPDF()
     pdf.add_page()
-    
-    # رأس التقرير
-    pdf.set_font("Arial", 'B', 20)
-    pdf.cell(190, 15, "EGMS Inventory & Analytics Report", ln=True, align='C')
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(190, 10, "EGMS Inventory Report", ln=True, align='C')
     pdf.set_font("Arial", size=10)
-    pdf.cell(190, 10, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True, align='C')
-    pdf.ln(10)
-
-    # الرسوم البيانية (Charts)
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(190, 10, "1. Stock Visual Analytics", ln=True)
+    pdf.cell(190, 10, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True, align='C')
     
-    # تحويل Plotly إلى صورة للـ PDF
+    # تحويل الرسم لصور
     try:
         img_bytes = pio.to_image(fig, format="png", width=800, height=450, scale=2)
-        img_buf = io.BytesIO(img_bytes)
-        pdf.image(img_buf, x=15, w=180)
-    except Exception:
-        pdf.cell(190, 10, "(Chart visualization requires 'kaleido' library)", ln=True)
+        pdf.image(io.BytesIO(img_bytes), x=15, w=180)
+    except: pass
     
     pdf.ln(10)
-
-    # جدول البيانات
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(190, 10, "2. Detailed Stock List", ln=True)
-    pdf.ln(5)
-    
-    # تصميم الجدول
-    pdf.set_fill_color(0, 51, 102) # أزرق داكن
-    pdf.set_text_color(255, 255, 255) # أبيض
-    pdf.set_font("Arial", 'B', 10)
-    pdf.cell(50, 10, "Item Name", 1, 0, 'C', True)
-    pdf.cell(40, 10, "Category", 1, 0, 'C', True)
-    pdf.cell(30, 10, "Qty", 1, 0, 'C', True)
-    pdf.cell(70, 10, "Location", 1, 1, 'C', True)
-
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Arial", size=9)
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(50, 10, "Item", 1); pdf.cell(40, 10, "Qty", 1); pdf.cell(40, 10, "Unit", 1); pdf.cell(60, 10, "Location", 1); pdf.ln()
+    pdf.set_font("Arial", size=10)
     for _, row in df.iterrows():
         pdf.cell(50, 8, str(row['name']), 1)
-        pdf.cell(40, 8, str(row['category']), 1)
-        pdf.cell(30, 8, str(row['quantity']), 1, 0, 'C')
-        pdf.cell(70, 8, str(row['location']), 1, 1)
-
+        pdf.cell(40, 8, str(row['quantity']), 1)
+        pdf.cell(40, 8, str(row['unit']), 1)
+        pdf.cell(60, 8, str(row['location']), 1); pdf.ln()
     return pdf.output(dest='S').encode('latin-1')
 
-# --- 3. واجهة المستخدم ---
-st.title("🏗️ EGMS Digital ERP v78")
+# --- 3. تصميم الواجهة ---
+st.set_page_config(page_title="EGMS v79 Platinum", layout="wide")
+UNITS = ["وحدة", "كغ", "كيس", "لتر", "متر مربع", "متر مكعب"]
 
-# جلب البيانات بأمان
-df = get_data()
+if "role" not in st.session_state:
+    st.session_state.role = None
 
-# عرض الإحصائيات إذا وجدت بيانات
-if not df.empty:
-    st.success("✅ تم الاتصال بقاعدة البيانات بنجاح")
-    
-    # الرسم البياني
-    fig = px.bar(df, x="name", y="quantity", color="category", 
-                 title="Inventory Levels by Item", template="plotly_white")
-    st.plotly_chart(fig, use_container_width=True)
-
-    # زر تحميل PDF في القائمة الجانبية
-    st.sidebar.header("🖨️ التقارير الإدارية")
-    if st.sidebar.button("توليد تقرير PDF الموثق"):
-        pdf_file = generate_inventory_pdf(df, fig)
-        st.sidebar.download_button(
-            label="📥 تحميل التقرير الآن",
-            data=pdf_file,
-            file_name=f"EGMS_Report_{datetime.now().strftime('%Y%m%d')}.pdf",
-            mime="application/pdf"
-        )
+# تسجيل الدخول
+if not st.session_state.role:
+    st.title("🏗️ نظام EGMS - تسجيل الدخول")
+    u = st.text_input("Username")
+    p = st.text_input("Password", type="password")
+    if st.button("دخول"):
+        if u == "admin" and p == "egms2025": st.session_state.role = "Admin"; st.rerun()
+        elif u == "magaza" and p == "store2025": st.session_state.role = "Store"; st.rerun()
+        else: st.error("خطأ!")
 else:
-    st.warning("📊 قاعدة البيانات جاهزة ولكنها فارغة. يرجى إضافة سلع جديدة للبدء.")
-    st.info("💡 نصيحة: استخدم القائمة الجانبية لإضافة السلع.")
+    role = st.session_state.role
+    st.sidebar.title(f"👤 {role}")
+    if st.sidebar.button("Logout"): st.session_state.role = None; st.rerun()
 
-# (كود الإضافة والبحث يظل كما هو في النسخة v77 لضمان الاستقرار)
+    conn = get_db_connection()
+    df_items = pd.read_sql("SELECT * FROM items", conn)
+    df_workers = pd.read_sql("SELECT * FROM workers", conn)
+
+    # --- واجهة مسؤول المغازة (Store) ---
+    if role == "Store":
+        st.header("📦 إدارة العمليات الميدانية")
+        t1, t2, t3, t4 = st.tabs(["📥 تسجيل سلع", "👷 العمال", "🤝 العُهدة", "📤 استيراد CSV"])
+        
+        with t1: # تسجيل السلع (الذي كان مختفياً ✅)
+            st.subheader("إضافة مادة جديدة أو تحديث رصيد")
+            with st.form("add_item_form", clear_on_submit=True):
+                mode = st.radio("الوضع", ["مادة جديدة", "تحديث موجود"])
+                name = st.selectbox("اختر المادة", df_items['name'].tolist()) if mode == "تحديث موجود" else st.text_input("اسم المادة الجديدة")
+                unit = st.selectbox("الوحدة", UNITS)
+                qty = st.number_input("الكمية", min_value=0.1)
+                loc = st.text_input("الموقع")
+                if st.form_submit_button("حفظ"):
+                    cursor = conn.cursor()
+                    if mode == "مادة جديدة":
+                        cursor.execute("INSERT OR IGNORE INTO items (name, unit, quantity, location) VALUES (?, ?, ?, ?)", (name, unit, qty, loc))
+                    else:
+                        cursor.execute("UPDATE items SET quantity = quantity + ? WHERE name = ?", (qty, name))
+                    cursor.execute("INSERT INTO history (item_name, qty, type, person, timestamp) VALUES (?, ?, ?, ?, ?)", 
+                                   (name, qty, "Entry", "Store", datetime.now().strftime("%Y-%m-%d %H:%M")))
+                    conn.commit(); st.success("تم الحفظ"); st.rerun()
+
+        with t2: # العمال
+            st.subheader("إدارة ملفات العمال")
+            with st.form("worker_form"):
+                wn = st.text_input("اسم العامل"); wp = st.text_area("خطة العمل")
+                if st.form_submit_button("إضافة"):
+                    conn.execute("INSERT OR IGNORE INTO workers (name, work_plan) VALUES (?, ?)", (wn, wp))
+                    conn.commit(); st.success("تم!"); st.rerun()
+
+        with t3: # العُهدة
+            st.subheader("تسليم عُهدة لعامل")
+            if not df_items.empty and not df_workers.empty:
+                with st.form("handover"):
+                    it = st.selectbox("المعدة", df_items['name'])
+                    wk = st.selectbox("العامل", df_workers['name'])
+                    q_h = st.number_input("الكمية", min_value=1.0)
+                    if st.form_submit_button("تسليم"):
+                        conn.execute("UPDATE items SET quantity = quantity - ? WHERE name = ?", (q_h, it))
+                        conn.execute("INSERT INTO history (item_name, qty, type, person, timestamp) VALUES (?, ?, ?, ?, ?)", 
+                                     (it, q_h, "Handover", wk, datetime.now().strftime("%Y-%m-%d %H:%M")))
+                        conn.commit(); st.success("تم التسليم"); st.rerun()
+
+    # --- واجهة المدير (Admin) ---
+    elif role == "Admin":
+        st.header("📊 لوحة القيادة والتحليلات")
+        if not df_items.empty:
+            fig = px.bar(df_items, x='name', y='quantity', color='name', title="رصيد المخزن")
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # تصدير PDF
+            if st.button("توليد تقرير PDF"):
+                pdf_bytes = generate_pdf(df_items, fig)
+                st.download_button("تحميل التقرير", pdf_bytes, "Report.pdf", "application/pdf")
+            
+            st.dataframe(df_items, use_container_width=True)
+        else: st.warning("المخزن فارغ")
+
+    conn.close()
