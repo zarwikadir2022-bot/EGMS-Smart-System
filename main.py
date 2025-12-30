@@ -2,161 +2,138 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 import plotly.express as px
-import plotly.io as pio
-from fpdf import FPDF
 from datetime import datetime
 import io
 
-# --- 1. إعدادات قاعدة البيانات (v79) ---
+# --- 1. إعدادات قاعدة البيانات (V80) ---
 def setup_database():
-    conn = sqlite3.connect("egms_v79_final.db", check_same_thread=False)
-    cursor = conn.cursor()
-    # جدول المواد
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            category TEXT,
-            quantity REAL DEFAULT 0,
-            unit TEXT,
-            location TEXT
-        )
-    """)
-    # جدول العمال
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS workers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            work_plan TEXT
-        )
-    """)
-    # جدول السجل التاريخي (Transactions)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_name TEXT,
-            qty REAL,
-            type TEXT,
-            person TEXT,
-            timestamp TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-setup_database()
-
-def get_db_connection():
-    return sqlite3.connect("egms_v79_final.db", check_same_thread=False)
-
-# --- 2. محرك تقارير PDF ---
-def generate_pdf(df, fig):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(190, 10, "EGMS Inventory Report", ln=True, align='C')
-    pdf.set_font("Arial", size=10)
-    pdf.cell(190, 10, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True, align='C')
-    
-    # تحويل الرسم لصور
     try:
-        img_bytes = pio.to_image(fig, format="png", width=800, height=450, scale=2)
-        pdf.image(io.BytesIO(img_bytes), x=15, w=180)
-    except: pass
-    
-    pdf.ln(10)
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(50, 10, "Item", 1); pdf.cell(40, 10, "Qty", 1); pdf.cell(40, 10, "Unit", 1); pdf.cell(60, 10, "Location", 1); pdf.ln()
-    pdf.set_font("Arial", size=10)
-    for _, row in df.iterrows():
-        pdf.cell(50, 8, str(row['name']), 1)
-        pdf.cell(40, 8, str(row['quantity']), 1)
-        pdf.cell(40, 8, str(row['unit']), 1)
-        pdf.cell(60, 8, str(row['location']), 1); pdf.ln()
-    return pdf.output(dest='S').encode('latin-1')
+        conn = sqlite3.connect("egms_v80_safe.db", check_same_thread=False)
+        cursor = conn.cursor()
+        # جدول المواد
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                unit TEXT,
+                quantity REAL DEFAULT 0,
+                location TEXT
+            )
+        """)
+        # جدول العمال
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS workers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                work_plan TEXT
+            )
+        """)
+        # سجل العمليات
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_name TEXT,
+                qty REAL,
+                type TEXT,
+                person TEXT,
+                timestamp TEXT
+            )
+        """)
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        st.error(f"خطأ في قاعدة البيانات: {e}")
+        return False
 
-# --- 3. تصميم الواجهة ---
-st.set_page_config(page_title="EGMS v79 Platinum", layout="wide")
-UNITS = ["وحدة", "كغ", "كيس", "لتر", "متر مربع", "متر مكعب"]
+# تشغيل الإعداد
+if setup_database():
+    st.sidebar.success("✅ قاعدة البيانات متصلة")
 
-if "role" not in st.session_state:
+# --- 2. منطق تسجيل الدخول (Session State) ---
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
     st.session_state.role = None
 
-# تسجيل الدخول
-if not st.session_state.role:
+# --- 3. واجهة البرنامج ---
+st.set_page_config(page_title="EGMS ERP v80", layout="wide")
+
+if not st.session_state.authenticated:
+    # شاشة الدخول تظهر هنا إجبارياً
     st.title("🏗️ نظام EGMS - تسجيل الدخول")
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
+    st.info("الرجاء إدخال البيانات للوصول إلى المنظومة")
+    
+    col1, col2 = st.columns(2)
+    user = col1.text_input("اسم المستخدم")
+    pw = col2.text_input("كلمة المرور", type="password")
+    
     if st.button("دخول"):
-        if u == "admin" and p == "egms2025": st.session_state.role = "Admin"; st.rerun()
-        elif u == "magaza" and p == "store2025": st.session_state.role = "Store"; st.rerun()
-        else: st.error("خطأ!")
+        if user == "admin" and pw == "egms2025":
+            st.session_state.authenticated = True
+            st.session_state.role = "Admin"
+            st.rerun()
+        elif user == "magaza" and pw == "store2025":
+            st.session_state.authenticated = True
+            st.session_state.role = "Store"
+            st.rerun()
+        else:
+            st.error("❌ بيانات الدخول غير صحيحة")
 else:
+    # الواجهة الرئيسية بعد الدخول
     role = st.session_state.role
-    st.sidebar.title(f"👤 {role}")
-    if st.sidebar.button("Logout"): st.session_state.role = None; st.rerun()
+    st.sidebar.title(f"👤 مرحباً: {role}")
+    
+    if st.sidebar.button("تسجيل الخروج"):
+        st.session_state.authenticated = False
+        st.session_state.role = None
+        st.rerun()
 
-    conn = get_db_connection()
-    df_items = pd.read_sql("SELECT * FROM items", conn)
-    df_workers = pd.read_sql("SELECT * FROM workers", conn)
-
+    conn = sqlite3.connect("egms_v80_safe.db", check_same_thread=False)
+    
     # --- واجهة مسؤول المغازة (Store) ---
     if role == "Store":
-        st.header("📦 إدارة العمليات الميدانية")
-        t1, t2, t3, t4 = st.tabs(["📥 تسجيل سلع", "👷 العمال", "🤝 العُهدة", "📤 استيراد CSV"])
+        st.header("📦 لوحة عمليات المغازة")
+        tab1, tab2, tab3 = st.tabs(["📥 إدارة السلع والعمال", "🤝 تسليم العُهدة", "📋 سجل الحركات"])
         
-        with t1: # تسجيل السلع (الذي كان مختفياً ✅)
-            st.subheader("إضافة مادة جديدة أو تحديث رصيد")
-            with st.form("add_item_form", clear_on_submit=True):
-                mode = st.radio("الوضع", ["مادة جديدة", "تحديث موجود"])
-                name = st.selectbox("اختر المادة", df_items['name'].tolist()) if mode == "تحديث موجود" else st.text_input("اسم المادة الجديدة")
-                unit = st.selectbox("الوحدة", UNITS)
-                qty = st.number_input("الكمية", min_value=0.1)
-                loc = st.text_input("الموقع")
-                if st.form_submit_button("حفظ"):
-                    cursor = conn.cursor()
-                    if mode == "مادة جديدة":
-                        cursor.execute("INSERT OR IGNORE INTO items (name, unit, quantity, location) VALUES (?, ?, ?, ?)", (name, unit, qty, loc))
-                    else:
-                        cursor.execute("UPDATE items SET quantity = quantity + ? WHERE name = ?", (qty, name))
-                    cursor.execute("INSERT INTO history (item_name, qty, type, person, timestamp) VALUES (?, ?, ?, ?, ?)", 
-                                   (name, qty, "Entry", "Store", datetime.now().strftime("%Y-%m-%d %H:%M")))
-                    conn.commit(); st.success("تم الحفظ"); st.rerun()
+        with tab1:
+            col_a, col_b = st.columns(2)
+            # إضافة سلع
+            with col_a:
+                st.subheader("➕ إضافة/تحديث مادة")
+                with st.form("item_form", clear_on_submit=True):
+                    it_name = st.text_input("اسم المادة")
+                    it_unit = st.selectbox("الوحدة", ["وحدة", "كغ", "كيس", "لتر", "متر مربع"])
+                    it_qty = st.number_input("الكمية", min_value=0.0)
+                    if st.form_submit_button("حفظ المادة"):
+                        cursor = conn.cursor()
+                        cursor.execute("INSERT OR REPLACE INTO items (name, unit, quantity) VALUES (?, ?, (SELECT COALESCE(quantity, 0) FROM items WHERE name=?)+?)", 
+                                       (it_name, it_unit, it_name, it_qty))
+                        conn.commit()
+                        st.success(f"تم تسجيل {it_name}")
 
-        with t2: # العمال
-            st.subheader("إدارة ملفات العمال")
-            with st.form("worker_form"):
-                wn = st.text_input("اسم العامل"); wp = st.text_area("خطة العمل")
-                if st.form_submit_button("إضافة"):
-                    conn.execute("INSERT OR IGNORE INTO workers (name, work_plan) VALUES (?, ?)", (wn, wp))
-                    conn.commit(); st.success("تم!"); st.rerun()
-
-        with t3: # العُهدة
-            st.subheader("تسليم عُهدة لعامل")
-            if not df_items.empty and not df_workers.empty:
-                with st.form("handover"):
-                    it = st.selectbox("المعدة", df_items['name'])
-                    wk = st.selectbox("العامل", df_workers['name'])
-                    q_h = st.number_input("الكمية", min_value=1.0)
-                    if st.form_submit_button("تسليم"):
-                        conn.execute("UPDATE items SET quantity = quantity - ? WHERE name = ?", (q_h, it))
-                        conn.execute("INSERT INTO history (item_name, qty, type, person, timestamp) VALUES (?, ?, ?, ?, ?)", 
-                                     (it, q_h, "Handover", wk, datetime.now().strftime("%Y-%m-%d %H:%M")))
-                        conn.commit(); st.success("تم التسليم"); st.rerun()
+            # إضافة عمال
+            with col_b:
+                st.subheader("👷 إضافة عامل")
+                with st.form("worker_form", clear_on_submit=True):
+                    w_name = st.text_input("اسم العامل")
+                    w_plan = st.text_area("خطة العمل")
+                    if st.form_submit_button("حفظ العامل"):
+                        cursor = conn.cursor()
+                        cursor.execute("INSERT OR IGNORE INTO workers (name, work_plan) VALUES (?, ?)", (w_name, w_plan))
+                        conn.commit()
+                        st.success(f"تم تسجيل {w_name}")
 
     # --- واجهة المدير (Admin) ---
     elif role == "Admin":
-        st.header("📊 لوحة القيادة والتحليلات")
+        st.header("📊 لوحة تحليلات الإدارة")
+        df_items = pd.read_sql("SELECT * FROM items", conn)
+        
         if not df_items.empty:
-            fig = px.bar(df_items, x='name', y='quantity', color='name', title="رصيد المخزن")
+            st.subheader("تحليل المخزون الحي")
+            fig = px.bar(df_items, x='name', y='quantity', color='name', title="رصيد المواد")
             st.plotly_chart(fig, use_container_width=True)
-            
-            # تصدير PDF
-            if st.button("توليد تقرير PDF"):
-                pdf_bytes = generate_pdf(df_items, fig)
-                st.download_button("تحميل التقرير", pdf_bytes, "Report.pdf", "application/pdf")
-            
             st.dataframe(df_items, use_container_width=True)
-        else: st.warning("المخزن فارغ")
+        else:
+            st.warning("⚠️ لا توجد بيانات لعرضها. يرجى الطلب من مسؤول المغازة إدخال السلع.")
 
     conn.close()
