@@ -1,111 +1,134 @@
 import streamlit as st
 import pandas as pd
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, scoped_session
-from datetime import datetime
+import sqlite3
 import plotly.express as px
+from datetime import datetime
 
-# --- 1. إعدادات قاعدة البيانات (Web Database) ---
-Base = declarative_base()
-class Item(Base):
-    __tablename__ = 'items'
-    id = Column(Integer, primary_key=True)
-    name = Column(String(100), nullable=False)
-    category = Column(String(100))
-    quantity = Column(Float)
-    unit = Column(String(50))
-    location = Column(String(100))
-    last_updated = Column(DateTime, default=datetime.utcnow)
+# --- 1. إعدادات قاعدة البيانات ---
+def get_connection():
+    conn = sqlite3.connect("web_store_inventory.db", check_same_thread=False)
+    return conn
 
-engine = create_engine('sqlite:///web_inventory.db', connect_args={'check_same_thread': False})
-Base.metadata.create_all(engine)
-Session = scoped_session(sessionmaker(bind=engine, expire_on_commit=False))
+def setup_database():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            category TEXT,
+            quantity REAL,
+            unit TEXT,
+            location TEXT,
+            date_added TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
 
-# --- 2. واجهة المستخدم (التصميم الجذاب) ---
-st.set_page_config(page_title="EGMS Web Inventory", layout="wide")
+# --- 2. إعدادات واجهة المستخدم (Streamlit) ---
+st.set_page_config(page_title="نظام جرد المغازة الحديث", layout="wide")
 
+# تصميم CSS بسيط لتحسين المظهر
 st.markdown("""
     <style>
-    .stApp { background-color: #f4f7f9; }
-    .metric-card { background-color: white; padding: 20px; border-radius: 12px; border-left: 6px solid #003366; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-    h1 { color: #003366; font-family: 'Segoe UI'; }
+    .main { background-color: #f5f7f9; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. نظام الدخول ---
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
+setup_database()
 
-if not st.session_state.authenticated:
-    st.title("🏗️ تسجيل الدخول للمنظومة")
-    user = st.text_input("اسم المستخدم")
-    pw = st.text_input("كلمة المرور", type="password")
-    if st.button("دخول"):
-        if user == "admin" and pw == "egms2025":
-            st.session_state.authenticated = True
-            st.rerun()
-        else: st.error("❌ بيانات خاطئة")
+# --- 3. المنطق البرمجي (CRUD) ---
+def add_item(name, cat, qty, unit, loc):
+    conn = get_connection()
+    cursor = conn.cursor()
+    date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("INSERT INTO items (name, category, quantity, unit, location, date_added) VALUES (?, ?, ?, ?, ?, ?)",
+                   (name, cat, qty, unit, loc, date_now))
+    conn.commit()
+    conn.close()
+
+def delete_item(id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM items WHERE id=?", (id,))
+    conn.commit()
+    conn.close()
+
+# --- 4. هيكل التطبيق (Layout) ---
+
+st.title("📦 نظام إدارة جرد مغازة الأشغال")
+st.markdown("---")
+
+# القائمة الجانبية لإدخال البيانات
+with st.sidebar:
+    st.header("➕ إضافة سلعة جديدة")
+    with st.form("input_form", clear_on_submit=True):
+        name = st.text_input("اسم السلعة")
+        category = st.selectbox("الفئة", ["مواد بناء", "كهرباء", "سباكة", "معدات ثقيلة", "أدوات يدوية"])
+        quantity = st.number_input("الكمية", min_value=0.0, step=0.1)
+        unit = st.text_input("الوحدة (كغ، قطعة، متر...)")
+        location = st.text_input("مكان التخزين")
+        submit = st.form_submit_button("إضافة للمخزن")
+        
+        if submit:
+            if name:
+                add_item(name, category, quantity, unit, location)
+                st.success(f"تمت إضافة {name} بنجاح")
+            else:
+                st.error("يرجى إدخال اسم السلعة")
+
+# جلب البيانات للعرض والتحليل
+conn = get_connection()
+df = pd.read_sql("SELECT * FROM items", conn)
+conn.close()
+
+# --- 5. لوحة الإحصائيات (Analytics Dashboard) ---
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric("إجمالي الأصناف", len(df))
+with col2:
+    low_stock = len(df[df['quantity'] < 5])
+    st.metric("أصناف منخفضة المخزون", low_stock, delta_color="inverse")
+with col3:
+    total_qty = df['quantity'].sum()
+    st.metric("إجمالي الكميات", f"{total_qty:,.0f}")
+
+st.markdown("### 📊 تحليل المخزون")
+if not df.empty:
+    fig = px.bar(df, x="name", y="quantity", color="category", 
+                 title="كميات السلع حسب الفئة", template="plotly_white")
+    st.plotly_chart(fig, use_container_width=True)
+
+# --- 6. جدول البيانات والبحث ---
+st.markdown("### 📋 سجل الجرد الحالي")
+search_query = st.text_input("🔍 بحث سريع بالاسم أو الفئة")
+if search_query:
+    df_display = df[df['name'].str.contains(search_query, case=False) | 
+                    df['category'].str.contains(search_query, case=False)]
 else:
-    session = Session()
-    st.sidebar.title("🛠️ التحكم")
-    page = st.sidebar.radio("انتقل إلى:", ["لوحة التحليل (Dashboard)", "إدارة الجرد (Inventory)", "إضافة سلع جديدة"])
+    df_display = df
 
-    # جلب البيانات
-    df = pd.read_sql(session.query(Item).statement, session.bind)
+st.dataframe(df_display, use_container_width=True)
 
-    # --- صفحة التحليل (Dashboard) ---
-    if page == "لوحة التحليل (Dashboard)":
-        st.title("📊 لوحة تحليلات المغازة")
-        
-        # بطاقات KPI
-        c1, c2, c3 = st.columns(3)
-        with c1: st.markdown(f'<div class="metric-card"><h3>إجمالي الأصناف</h3><h2>{len(df)}</h2></div>', unsafe_allow_html=True)
-        with c2: st.markdown(f'<div class="metric-card"><h3>قطع المخزن</h3><h2>{df["quantity"].sum() if not df.empty else 0}</h2></div>', unsafe_allow_html=True)
-        with c3: st.markdown(f'<div class="metric-card"><h3>آخر تحديث</h3><h5>{datetime.now().strftime("%Y-%m-%d")}</h5></div>', unsafe_allow_html=True)
+# خيار الحذف
+if not df_display.empty:
+    st.markdown("---")
+    col_del1, col_del2 = st.columns([1, 3])
+    with col_del1:
+        id_to_delete = st.number_input("أدخل ID للحذف", min_value=1, step=1)
+        if st.button("🗑️ حذف السلعة"):
+            delete_item(id_to_delete)
+            st.warning(f"تم حذف السلعة رقم {id_to_delete}")
+            st.rerun()
 
-        if not df.empty:
-            st.divider()
-            col_a, col_b = st.columns(2)
-            fig1 = px.bar(df, x='name', y='quantity', color='category', title="توزيع الكميات حسب الصنف")
-            col_a.plotly_chart(fig1, use_container_width=True)
-            
-            fig2 = px.pie(df, values='quantity', names='category', hole=0.4, title="نسبة الفئات في المخزن")
-            col_b.plotly_chart(fig2, use_container_width=True)
-
-    # --- صفحة إدارة الجرد (Inventory) ---
-    elif page == "إدارة الجرد (Inventory)":
-        st.title("📋 سجل الجرد التفصيلي")
-        search = st.text_input("🔍 ابحث عن سلعة بالاسم...")
-        if search:
-            display_df = df[df['name'].str.contains(search, case=False)]
-        else:
-            display_df = df
-        
-        st.dataframe(display_df, use_container_width=True)
-        
-        # تصدير البيانات (متطلب تحليل البيانات ✅)
-        csv = display_df.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 تحميل سجل الجرد (CSV)", csv, "inventory_report.csv", "text/csv")
-
-    # --- صفحة إضافة سلع ---
-    elif page == "إضافة سلع جديدة":
-        st.title("📥 تسجيل سلع ومعدات")
-        with st.form("add_form"):
-            name = st.text_input("اسم السلعة")
-            cat = st.selectbox("الفئة", ["معدات ثقيلة", "مواد بناء", "أدوات يدوية", "أخرى"])
-            qty = st.number_input("الكمية", min_value=0.0)
-            unit = st.text_input("الوحدة (كغ، قطعة...)")
-            loc = st.text_input("مكان التخزين (الرف/المستودع)")
-            
-            if st.form_submit_button("حفظ في قاعدة البيانات"):
-                new_item = Item(name=name, category=cat, quantity=qty, unit=unit, location=loc)
-                session.add(new_item)
-                session.commit()
-                st.success(f"✅ تم إضافة {name} بنجاح!")
-                st.rerun()
-
-    if st.sidebar.button("تسجيل الخروج"):
-        st.session_state.authenticated = False
-        st.rerun()
-    Session.remove()
+# تصدير البيانات (مهم جداً لمحلل البيانات)
+st.sidebar.markdown("---")
+csv = df.to_csv(index=False).encode('utf-8')
+st.sidebar.download_button(
+    label="📥 تحميل الجرد كملف CSV",
+    data=csv,
+    file_name='inventory_report.csv',
+    mime='text/csv',
+)
