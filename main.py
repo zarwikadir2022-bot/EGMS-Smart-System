@@ -10,17 +10,78 @@ try:
 except ImportError:
     decode = None
 
-# --- 1. إعدادات الصفحة ---
-st.set_page_config(page_title="Smart Shop System", page_icon="🛒", layout="wide")
+# --- 1. إعدادات الصفحة والتصميم الجديد ---
+st.set_page_config(page_title="Smart Shop | 3D V5.0", page_icon="🛒", layout="wide")
 
+# 🔥✨ هنا يكمن سحر التصميم الجديد ✨🔥
 st.markdown("""
 <style>
-    .stApp {background-color: #f8f9fa; color: #333;}
-    section[data-testid="stSidebar"] {background-color: #2c3e50; color: white;}
-    .big-btn button {width: 100%; height: 60px; font-size: 20px; background-color: #27ae60; color: white; border: none; border-radius: 8px;}
-    .big-btn button:hover {background-color: #2ecc71;}
-    .warning-box {background-color: #ffcccc; color: #cc0000; padding: 15px; border-radius: 10px; border: 1px solid #ff0000; margin-bottom: 20px; text-align: center; font-weight: bold;}
-    .login-box {max-width: 400px; margin: auto; padding: 40px; background-color: white; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center;}
+    /* 1. الخلفية العامة الدافئة */
+    .stApp {
+        background: linear-gradient(135deg, #FFF3E0 0%, #FFE0B2 100%); /* تدرج برتقالي كريمي */
+        color: #3E2723; /* نص بني غامق */
+    }
+    
+    /* 2. القائمة الجانبية */
+    section[data-testid="stSidebar"] {
+        background-color: #BF360C; /* لون الطوب الأحمر الدافئ */
+        color: #FFF3E0;
+        box-shadow: 5px 0 15px rgba(0,0,0,0.2); /* ظل جانبي */
+    }
+    div[data-testid="stSidebarUserContent"] * {color: #FFF3E0 !important;} /* جعل نصوص القائمة فاتحة */
+
+    /* 3. البطاقات ثلاثية الأبعاد (The 3D Cards) */
+    /* سنستخدم هذا الكلاس لتغليف العناصر */
+    .three-d-card {
+        background: #FFFFFF;
+        border-radius: 20px;
+        padding: 25px;
+        margin-bottom: 20px;
+        /* هذا الظل هو سر الـ 3D */
+        box-shadow: 0 10px 25px rgba(62, 39, 35, 0.15), 0 5px 10px rgba(62, 39, 35, 0.1);
+        transition: transform 0.3s ease;
+    }
+    .three-d-card:hover {
+         transform: translateY(-5px); /* تأثير ارتفاع خفيف عند الماوس */
+    }
+
+    /* 4. الأزرار الكبيرة (3D) */
+    .big-btn button {
+        width: 100%; height: 65px; font-size: 22px; font-weight: bold;
+        background: linear-gradient(to bottom, #FF5722, #E64A19); /* تدرج برتقالي ناري */
+        color: white; border: none; border-radius: 12px;
+        box-shadow: 0 6px #BF360C; /* ظل صلب للزر */
+        transition: all 0.1s;
+    }
+    .big-btn button:hover {
+        background: linear-gradient(to bottom, #FF7043, #F4511E);
+        transform: translateY(-2px);
+        box-shadow: 0 8px #BF360C;
+    }
+    .big-btn button:active {
+        transform: translateY(4px);
+        box-shadow: 0 2px #BF360C; /* تأثير الضغط */
+    }
+
+    /* 5. صناديق التنبيه وتسجيل الدخول */
+    .warning-box {
+        background-color: #FFCCBC; color: #BF360C; padding: 15px; 
+        border-radius: 12px; border: 2px solid #FF5722; margin-bottom: 20px; 
+        text-align: center; font-weight: bold; box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+    .login-box {
+        max-width: 400px; margin: auto; padding: 40px; 
+        background: #fff; border-radius: 25px; 
+        /* ظل قوي جداً للـ Login */
+        box-shadow: 0 20px 40px rgba(0,0,0,0.2); 
+        text-align: center;
+    }
+    
+    /* 6. تحسين الجداول والأرقام */
+    div[data-testid="stDataFrame"] {
+        border-radius: 15px; overflow: hidden; box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+    div[data-testid="stMetricValue"] { color: #E64A19; font-weight: 800; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -33,7 +94,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS sales (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, total REAL, profit REAL, type TEXT, customer_id INTEGER, seller_name TEXT, barcode TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT)''')
     
-    # المستخدمين الافتراضيين (لن يتم تغييرهم إذا كانوا موجودين)
     c.execute("INSERT OR IGNORE INTO users VALUES ('admin', '1234', 'admin')")
     c.execute("INSERT OR IGNORE INTO users VALUES ('ahmed', '0000', 'seller')")
     c.execute("INSERT OR IGNORE INTO users VALUES ('sami', '1111', 'seller')")
@@ -109,18 +169,18 @@ if 'user_role' not in st.session_state: st.session_state['user_role'] = None
 if 'cart' not in st.session_state: st.session_state['cart'] = []
 if 'receipt_data' not in st.session_state: st.session_state['receipt_data'] = None 
 
-# --- 5. شاشة تسجيل الدخول (تم تنظيفها) ---
+# --- 5. شاشة تسجيل الدخول (3D) ---
 def login_page():
     st.markdown("<br><br><br>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         st.markdown("<div class='login-box'>", unsafe_allow_html=True)
-        st.image("https://cdn-icons-png.flaticon.com/512/295/295128.png", width=100)
-        st.markdown("## تسجيل الدخول")
+        st.image("https://cdn-icons-png.flaticon.com/512/295/295128.png", width=120)
+        st.markdown("<h2 style='color:#BF360C;'>تسجيل الدخول</h2>", unsafe_allow_html=True)
         st.markdown("---")
         
-        username = st.text_input("اسم المستخدم", placeholder="User")
-        password = st.text_input("كلمة السر", type="password", placeholder="Password")
+        username = st.text_input("اسم المستخدم")
+        password = st.text_input("كلمة السر", type="password")
         
         st.markdown("<br>", unsafe_allow_html=True)
         
@@ -141,7 +201,7 @@ def main_app():
     user = st.session_state['current_user']
 
     with st.sidebar:
-        st.title("🛒 Smart Shop")
+        st.title("🛒 Smart Shop 3D")
         st.markdown(f"👤 **{user}** ({role})")
         if st.button("🔴 خروج"):
             st.session_state['logged_in'] = False
@@ -158,7 +218,7 @@ def main_app():
         if role == 'admin':
             zero_cost_count = pd.read_sql("SELECT COUNT(*) FROM products WHERE cost = 0", conn).iloc[0,0]
             if zero_cost_count > 0:
-                st.error(f"⚠️ تنبيه: {zero_cost_count} منتجات بدون تكلفة!")
+                st.markdown(f"<div class='warning-box' style='font-size:0.8em;'>⚠️ {zero_cost_count} منتجات بدون تكلفة!</div>", unsafe_allow_html=True)
 
     # ==========================
     # 1. نقطة البيع
@@ -166,6 +226,8 @@ def main_app():
     if menu == "💰 نقطة البيع":
         st.header(f"💰 نقطة البيع")
         
+        # تغليف الإدخال ببطاقة 3D
+        st.markdown('<div class="three-d-card">', unsafe_allow_html=True)
         with st.form("pos", clear_on_submit=True):
             c1, c2, c3 = st.columns([3,1,1])
             with c1: code = st.text_input("الباركود")
@@ -178,6 +240,7 @@ def main_app():
             succ, name = add_to_cart_logic(code, qty)
             if succ: st.toast(f"✅ {name}")
             else: st.error("غير موجود")
+        st.markdown('</div>', unsafe_allow_html=True)
 
         with st.expander("📷 كاميرا"):
             if decode:
@@ -187,6 +250,9 @@ def main_app():
                     if d: add_to_cart_logic(d[0].data.decode("utf-8"), 1)
 
         if st.session_state['cart']:
+            # تغليف السلة ببطاقة 3D
+            st.markdown('<div class="three-d-card">', unsafe_allow_html=True)
+            st.subheader("🛒 السلة")
             df = pd.DataFrame(st.session_state['cart'])
             df['Total'] = df['price'] * df['qty']
             st.dataframe(df[['name', 'price', 'qty', 'Total']], use_container_width=True)
@@ -196,8 +262,9 @@ def main_app():
             total = df['Total'].sum()
             profit = total - (df['cost'] * df['qty']).sum()
             
-            st.metric("المجموع", f"{total:.3f}")
-            
+            st.metric("المجموع النهائي", f"{total:.3f} TND")
+            st.markdown("---")
+
             col_pay, col_act = st.columns(2)
             with col_pay:
                 pay_method = st.radio("طريقة الدفع", ["كاش", "كريدي"], horizontal=True)
@@ -210,8 +277,8 @@ def main_app():
                         cust_id = dct[cust_name]
 
             with col_act:
-                st.write("")
-                if st.button("✅ تأكيد البيع", type="primary", use_container_width=True):
+                st.markdown('<div class="big-btn">', unsafe_allow_html=True)
+                if st.button("✅ تأكيد البيع 3D"):
                     if pay_method == "كريدي" and not cust_id:
                         st.error("اختر الحريف!")
                     else:
@@ -230,25 +297,32 @@ def main_app():
                         st.session_state['cart'] = []
                         st.success("تم!")
                         st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
         if st.session_state['receipt_data']:
+            st.markdown('<div class="three-d-card" style="background:#FFF8E1;">', unsafe_allow_html=True)
+            st.markdown("#### 🖨️ الوصل")
             st.text(st.session_state['receipt_data'])
             st.download_button("تحميل الوصل", st.session_state['receipt_data'], "ticket.txt")
             if st.button("إخفاء"): st.session_state['receipt_data']=None; st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
     # ==========================
     # 2. المخزون
     # ==========================
     elif menu == "📦 المخزون":
-        st.header("📦 إدارة المخزون")
+        st.header("📦 المخزون")
         
         if role == 'admin':
             z = pd.read_sql("SELECT * FROM products WHERE cost = 0", conn)
             if not z.empty:
-                st.markdown(f"<div class='warning-box'>⚠️ تنبيه: {len(z)} منتجات بدون تكلفة (أرباح غير دقيقة).</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='warning-box'>⚠️ تنبيه: {len(z)} منتجات بدون تكلفة!</div>", unsafe_allow_html=True)
                 if st.checkbox("عرض المنتجات الناقصة فقط"): st.dataframe(z)
         
-        with st.expander("➕ إضافة / تعديل"):
+        # تغليف نموذج الإضافة
+        st.markdown('<div class="three-d-card">', unsafe_allow_html=True)
+        with st.expander("➕ إضافة / تعديل منتج", expanded=True):
             with st.form("prod"):
                 c1, c2 = st.columns(2)
                 with c1: p_bar = st.text_input("الباركود"); p_name = st.text_input("الاسم")
@@ -259,47 +333,52 @@ def main_app():
                     with cc1: p_cost = st.number_input("شراء", 0.0, format="%.3f")
                     with cc2: p_price = st.number_input("بيع", 0.0, format="%.3f")
                 else:
-                    p_price = st.number_input("بيع", 0.0, format="%.3f")
-                    p_cost = 0.0 
+                    p_price = st.number_input("بيع", 0.0, format="%.3f"); p_cost = 0.0 
                 
-                if st.form_submit_button("حفظ"):
+                if st.form_submit_button("حفظ 💾"):
                     c = conn.cursor()
                     if role != 'admin':
                         ex = get_product(p_bar)
                         p_cost = ex[3] if ex else 0.0
-                    
                     c.execute("INSERT OR REPLACE INTO products VALUES (?,?,?,?,?,?)", (p_bar, p_name, p_price, p_cost, p_stock, p_min))
-                    conn.commit()
-                    st.success("تم!")
-                    st.rerun()
+                    conn.commit(); st.success("تم!"); st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
+        # تغليف الجدول
+        st.markdown('<div class="three-d-card">', unsafe_allow_html=True)
         df = pd.read_sql("SELECT * FROM products", conn)
         if role != 'admin': df = df.drop(columns=['cost'])
         st.dataframe(df, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # ==========================
     # 3. الكريدي
     # ==========================
     elif menu == "📒 دفتر الكريدي":
         st.header("📒 الديون")
+        st.markdown('<div class="three-d-card">', unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         with c1:
+            st.subheader("إضافة حريف")
             with st.form("cust"):
                 n = st.text_input("الاسم"); p = st.text_input("الهاتف")
-                if st.form_submit_button("إضافة"):
+                if st.form_submit_button("حفظ"):
                     c = conn.cursor(); c.execute("INSERT INTO customers (name, phone, debt) VALUES (?,?,0)", (n, p)); conn.commit(); st.success("تم")
         with c2:
+            st.subheader("استخلاص")
             df = pd.read_sql("SELECT * FROM customers WHERE debt > 0", conn)
             if not df.empty:
-                s = st.selectbox("استخلاص:", df['name'])
+                s = st.selectbox("الحريف", df['name'])
                 if s:
                     cur = df[df['name']==s]['debt'].values[0]
-                    st.info(f"عليه: {cur:.3f}")
+                    st.metric("الدين الحالي", f"{cur:.3f}")
                     amt = st.number_input("دفع:", 0.0, cur)
-                    if st.button("تأكيد"):
+                    if st.button("تأكيد الدفع 💰"):
                         cid = df[df['name']==s]['id'].values[0]
                         c = conn.cursor(); c.execute("UPDATE customers SET debt=debt-? WHERE id=?", (amt, cid)); conn.commit(); st.success("تم!"); st.rerun()
+        st.markdown("---")
         st.dataframe(pd.read_sql("SELECT name, phone, debt FROM customers", conn), use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # ==========================
     # 4. الإحصائيات
@@ -307,13 +386,16 @@ def main_app():
     elif menu == "📊 الإحصائيات":
         if role == 'admin':
             st.header("📊 لوحة القيادة")
+            st.markdown('<div class="three-d-card">', unsafe_allow_html=True)
             s = pd.read_sql("SELECT * FROM sales", conn)
             if not s.empty:
                 c1, c2 = st.columns(2)
-                c1.metric("المبيعات", f"{s['total'].sum():.3f}")
-                c2.metric("الربح", f"{s['profit'].sum():.3f}")
+                c1.metric("المبيعات الكلية", f"{s['total'].sum():.3f}")
+                c2.metric("الربح الصافي", f"{s['profit'].sum():.3f}")
+                st.markdown("---")
                 st.dataframe(s)
             else: st.info("لا مبيعات")
+            st.markdown('</div>', unsafe_allow_html=True)
         else: st.error("ممنوع!")
 
 if st.session_state['logged_in']:
