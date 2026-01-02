@@ -5,14 +5,13 @@ from datetime import datetime
 import time
 from PIL import Image
 
-# --- تهيئة مكتبة الباركود ---
 try:
     from pyzbar.pyzbar import decode
 except ImportError:
     decode = None
 
-# --- 1. إعدادات الصفحة (يجب أن تكون أول سطر) ---
-st.set_page_config(page_title="Smart Shop | Security V4.0", page_icon="🔐", layout="wide")
+# --- 1. إعدادات الصفحة ---
+st.set_page_config(page_title="Smart Shop | Privacy V4.1", page_icon="🔐", layout="wide")
 
 st.markdown("""
 <style>
@@ -28,33 +27,18 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. قاعدة البيانات (تم التعديل لإضافة المستخدمين) ---
+# --- 2. قاعدة البيانات ---
 def init_db():
     conn = sqlite3.connect('shop_data.db', check_same_thread=False)
     c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS products (barcode TEXT PRIMARY KEY, name TEXT, price REAL, cost REAL, stock INTEGER, min_stock INTEGER)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS customers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, phone TEXT, debt REAL)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS sales (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, total REAL, profit REAL, type TEXT, customer_id INTEGER, seller_name TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT)''')
     
-    # 1. المنتجات
-    c.execute('''CREATE TABLE IF NOT EXISTS products 
-                 (barcode TEXT PRIMARY KEY, name TEXT, price REAL, cost REAL, stock INTEGER, min_stock INTEGER)''')
-    
-    # 2. الزبائن
-    c.execute('''CREATE TABLE IF NOT EXISTS customers 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, phone TEXT, debt REAL)''')
-    
-    # 3. المبيعات (أضفنا seller_name لمعرفة البائع)
-    c.execute('''CREATE TABLE IF NOT EXISTS sales 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, total REAL, profit REAL, type TEXT, customer_id INTEGER, seller_name TEXT)''')
-    
-    # 4. المستخدمين (جديد)
-    c.execute('''CREATE TABLE IF NOT EXISTS users 
-                 (username TEXT PRIMARY KEY, password TEXT, role TEXT)''')
-    
-    # إضافة مستخدمين افتراضيين إذا لم يوجدوا
-    # Admin (المدير)
+    # المستخدمين الافتراضيين
     c.execute("INSERT OR IGNORE INTO users VALUES ('admin', '1234', 'admin')")
-    # البائع 1
     c.execute("INSERT OR IGNORE INTO users VALUES ('ahmed', '0000', 'seller')")
-    # البائع 2
     c.execute("INSERT OR IGNORE INTO users VALUES ('sami', '1111', 'seller')")
     
     conn.commit()
@@ -104,7 +88,7 @@ def add_to_cart_logic(barcode, quantity=1):
 def generate_receipt_text(cart_items, total, date, client_name, pay_type, seller):
     lines = ["******************************", "       MAGASIN TUNISIE        ", "******************************"]
     lines.append(f"Date:   {date}")
-    lines.append(f"Vendeur:{seller}") # اسم البائع في الوصل
+    lines.append(f"Vendeur:{seller}")
     lines.append(f"Client: {client_name}")
     lines.append("------------------------------")
     lines.append(f"{'Article':<15} {'Qt':<3} {'Prix'}")
@@ -136,45 +120,60 @@ def login_page():
         st.markdown("<div class='login-box'>", unsafe_allow_html=True)
         st.image("https://cdn-icons-png.flaticon.com/512/295/295128.png", width=100)
         st.title("تسجيل الدخول")
-        st.markdown("##### نظام إدارة المغازة")
+        st.markdown("##### Smart Shop System")
         
         username = st.text_input("اسم المستخدم")
         password = st.text_input("كلمة السر", type="password")
         
         if st.button("دخول 🔐", use_container_width=True):
-            user = login_user(username, password)
+            user = login_user(username, password) # user = (username, pass, role)
             if user:
                 st.session_state['logged_in'] = True
-                st.session_state['current_user'] = user[0] # username
-                st.session_state['user_role'] = user[2] # role
-                st.success(f"مرحباً {user[0]}!")
+                st.session_state['current_user'] = user[0]
+                st.session_state['user_role'] = user[2]
+                st.success(f"مرحباً {user[0]} ({user[2]})")
                 time.sleep(0.5)
                 st.rerun()
             else:
-                st.error("بيانات خاطئة!")
+                st.error("خطأ في البيانات!")
         st.markdown("</div>", unsafe_allow_html=True)
 
 # --- 6. التطبيق الرئيسي ---
 def main_app():
-    # الشريط الجانبي (مع معلومات البائع)
+    role = st.session_state['user_role']
+    user = st.session_state['current_user']
+
+    # --- القائمة الجانبية الذكية (Smart Sidebar) ---
     with st.sidebar:
         st.title("🛒 Smart Shop")
-        st.markdown(f"👤 البائع: **{st.session_state['current_user']}**")
+        st.markdown(f"👤 المستخدم: **{user}**")
+        st.caption(f"الصلاحية: {role}")
+        
         if st.button("🔴 تسجيل الخروج"):
             st.session_state['logged_in'] = False
             st.session_state['current_user'] = None
+            st.session_state['user_role'] = None
             st.rerun()
             
         st.markdown("---")
-        menu = st.radio("القائمة", ["💰 نقطة البيع", "📦 المخزون", "📒 دفتر الكريدي", "📊 الإحصائيات"])
+        
+        # تحديد القوائم المسموحة
+        if role == 'admin':
+            # المدير يرى كل شيء
+            menu_options = ["💰 نقطة البيع", "📦 المخزون", "📒 دفتر الكريدي", "📊 الإحصائيات"]
+        else:
+            # البائع يرى البيع والمخزون والكريدي فقط
+            menu_options = ["💰 نقطة البيع", "📦 المخزون", "📒 دفتر الكريدي"]
+            
+        menu = st.radio("القائمة", menu_options)
         
         if decode is None: st.warning("⚠️ الكاميرا غير مفعلة.")
 
     # ==========================
-    # 1. نقطة البيع
+    # 1. نقطة البيع (للجميع)
     # ==========================
     if menu == "💰 نقطة البيع":
-        st.header(f"💰 نقطة البيع (البائع: {st.session_state['current_user']})")
+        st.header(f"💰 نقطة البيع")
         
         with st.container():
             with st.form("pos_entry", clear_on_submit=True):
@@ -189,9 +188,8 @@ def main_app():
             if submit_btn and code_input:
                 success, p_name = add_to_cart_logic(code_input, qty_input)
                 if success: st.toast(f"✅ أضيف: {p_name}")
-                else: st.error("❌ منتج غير موجود!")
+                else: st.error("❌ غير موجود")
 
-        # الكاميرا
         with st.expander("📷 الكاميرا"):
             if decode:
                 cam_img = st.camera_input("مسح")
@@ -210,14 +208,10 @@ def main_app():
                 st.dataframe(cart_df[['name', 'price', 'qty', 'Total']], use_container_width=True)
                 
                 if st.button("❌ تفريغ السلة"):
-                    st.session_state['cart'] = []
-                    st.rerun()
+                    st.session_state['cart'] = []; st.rerun()
 
                 total_sum = cart_df['Total'].sum()
-                total_cost = (cart_df['cost'] * cart_df['qty']).sum()
-                total_profit = total_sum - total_cost
-                
-                st.metric("الإجمالي للدفع", f"{total_sum:.3f} TND")
+                st.metric("الإجمالي", f"{total_sum:.3f} TND")
                 
                 pay_method = st.radio("الدفع:", ["كاش", "كريدي"], horizontal=True)
                 cust_id = None
@@ -239,63 +233,81 @@ def main_app():
                             update_stock(item['barcode'], item['qty'])
                         
                         curr_date = datetime.now().strftime("%Y-%m-%d %H:%M")
-                        seller = st.session_state['current_user']
+                        # حساب الربح في الخلفية (البائع لا يراه)
+                        total_cost = (cart_df['cost'] * cart_df['qty']).sum()
+                        total_profit = total_sum - total_cost
                         
                         c = conn.cursor()
-                        # تسجيل اسم البائع (seller_name)
                         c.execute("INSERT INTO sales (date, total, profit, type, customer_id, seller_name) VALUES (?, ?, ?, ?, ?, ?)", 
-                                  (curr_date, total_sum, total_profit, pay_method, cust_id, seller))
+                                  (curr_date, total_sum, total_profit, pay_method, cust_id, user))
                         
                         if pay_method == "كريدي": add_debt(cust_id, total_sum)
                         conn.commit()
                         
-                        st.session_state['receipt_data'] = generate_receipt_text(st.session_state['cart'], total_sum, curr_date, cust_name, pay_method, seller)
+                        st.session_state['receipt_data'] = generate_receipt_text(st.session_state['cart'], total_sum, curr_date, cust_name, pay_method, user)
                         st.session_state['cart'] = []
-                        st.success("تم البيع بنجاح!")
+                        st.success("تم!")
                         st.rerun()
 
         with col_receipt:
             if st.session_state['receipt_data']:
-                st.markdown("### 🖨️ آخر وصل")
                 st.text(st.session_state['receipt_data'])
-                st.download_button("تحميل الوصل (TXT)", st.session_state['receipt_data'], f"ticket.txt")
-                if st.button("إخفاء"):
-                    st.session_state['receipt_data'] = None
-                    st.rerun()
+                st.download_button("تحميل الوصل", st.session_state['receipt_data'], "ticket.txt")
+                if st.button("إخفاء"): st.session_state['receipt_data'] = None; st.rerun()
 
     # ==========================
-    # 2. إدارة السلع
+    # 2. المخزون (تحكم بصلاحيات التكلفة)
     # ==========================
     elif menu == "📦 المخزون":
         st.header("📦 إدارة المخزون")
         
-        with st.expander("➕ إضافة / تعديل منتج", expanded=True):
+        with st.expander("➕ إضافة / تعديل منتج"):
             with st.form("prod_form", clear_on_submit=True):
                 c1, c2 = st.columns(2)
                 with c1: 
                     p_bar = st.text_input("الباركود")
-                    p_name = st.text_input("اسم المنتج")
+                    p_name = st.text_input("الاسم")
                 with c2:
-                    p_stock = st.number_input("الكمية", min_value=0, step=1)
+                    p_stock = st.number_input("الكمية", min_value=0)
                     p_min = st.number_input("تنبيه النقص", value=5)
                 
-                cc1, cc2 = st.columns(2)
-                with cc1: p_cost = st.number_input("سعر الشراء", min_value=0.0, step=0.1, format="%.3f")
-                with cc2: p_price = st.number_input("سعر البيع", min_value=0.0, step=0.1, format="%.3f")
+                # إظهار سعر الشراء للمدير فقط
+                if role == 'admin':
+                    cc1, cc2 = st.columns(2)
+                    with cc1: p_cost = st.number_input("سعر الشراء (التكلفة)", min_value=0.0, format="%.3f")
+                    with cc2: p_price = st.number_input("سعر البيع", min_value=0.0, format="%.3f")
+                else:
+                    # البائع يرى سعر البيع فقط
+                    p_price = st.number_input("سعر البيع", min_value=0.0, format="%.3f")
+                    p_cost = 0.0 # قيمة افتراضية للبائع (لن يتم حفظها إذا كان المنتج موجوداً)
                 
                 if st.form_submit_button("حفظ"):
                     try:
                         c = conn.cursor()
+                        # إذا كان بائع، نحتاج لجلب التكلفة القديمة حتى لا نصفرها
+                        if role != 'admin':
+                            old_prod = get_product(p_bar)
+                            if old_prod:
+                                p_cost = old_prod[3] # الحفاظ على التكلفة القديمة
+                            else:
+                                p_cost = 0.0 # منتج جديد من بائع (بدون تكلفة مؤقتاً)
+                                
                         c.execute("INSERT OR REPLACE INTO products VALUES (?,?,?,?,?,?)", 
                                   (p_bar, p_name, p_price, p_cost, p_stock, p_min))
                         conn.commit()
                         st.success("تم الحفظ!")
                     except: st.error("خطأ")
 
-        st.dataframe(pd.read_sql("SELECT * FROM products", conn), use_container_width=True)
+        # عرض الجدول (إخفاء التكلفة للبائع)
+        df = pd.read_sql("SELECT * FROM products", conn)
+        if role != 'admin' and not df.empty:
+            # حذف عمود التكلفة من العرض للبائع
+            df = df.drop(columns=['cost'])
+            
+        st.dataframe(df, use_container_width=True)
 
     # ==========================
-    # 3. دفتر الكريدي
+    # 3. دفتر الكريدي (للجميع)
     # ==========================
     elif menu == "📒 دفتر الكريدي":
         st.header("📒 الديون")
@@ -315,7 +327,7 @@ def main_app():
                 c_pay = st.selectbox("استخلاص:", custs['name'])
                 if c_pay:
                     curr = custs[custs['name']==c_pay]['debt'].values[0]
-                    st.info(f"الدين: {curr:.3f}")
+                    st.info(f"عليه: {curr:.3f}")
                     amt = st.number_input("دفع:", min_value=0.0, max_value=curr)
                     if st.button("تأكيد"):
                         cid = custs[custs['name']==c_pay]['id'].values[0]
@@ -327,32 +339,31 @@ def main_app():
         st.dataframe(pd.read_sql("SELECT name, phone, debt FROM customers", conn), use_container_width=True)
 
     # ==========================
-    # 4. الإحصائيات (مع فلتر البائع)
+    # 4. الإحصائيات (للمدير فقط)
     # ==========================
-    elif menu == "📊 الإحصائيات":
-        st.header("📊 التقارير")
+    elif menu == "📊 الإحصائيات" and role == 'admin':
+        st.header("📊 لوحة القيادة (Admin Only)")
         
-        # إحصائيات عامة
+        sales_data = pd.read_sql("SELECT total, profit FROM sales", conn)
+        total_rev = sales_data['total'].sum() if not sales_data.empty else 0
+        total_prof = sales_data['profit'].sum() if not sales_data.empty else 0
+        
+        c1, c2 = st.columns(2)
+        c1.metric("المبيعات", f"{total_rev:.3f} TND")
+        c2.metric("الربح الصافي", f"{total_prof:.3f} TND", delta="صافي")
+        
+        st.subheader("أداء الباعة")
         sales_df = pd.read_sql("SELECT * FROM sales", conn)
-        
-        c1, c2, c3 = st.columns(3)
         if not sales_df.empty:
-            c1.metric("المبيعات الكلية", f"{sales_df['total'].sum():.3f} TND")
-            c2.metric("الربح الصافي", f"{sales_df['profit'].sum():.3f} TND")
-        else:
-            c1.metric("المبيعات", "0.000")
-        
-        # عرض المبيعات حسب البائع
-        st.subheader("👨‍💼 أداء الباعة")
-        if not sales_df.empty:
-            seller_stats = sales_df.groupby('seller_name')['total'].sum().reset_index()
-            st.bar_chart(seller_stats.set_index('seller_name'))
-            
-            st.markdown("### سجل المبيعات")
-            # عرض اسم البائع في الجدول
-            st.dataframe(sales_df[['date', 'seller_name', 'total', 'profit', 'type']], use_container_width=True)
+            seller_stats = sales_df.groupby('seller_name')['total'].sum()
+            st.bar_chart(seller_stats)
+            st.dataframe(sales_df)
+    
+    # حماية إضافية: إذا حاول البائع الوصول للإحصائيات
+    elif menu == "📊 الإحصائيات" and role != 'admin':
+        st.error("⛔ عذراً، هذه الصفحة مخصصة للمدير فقط.")
 
-# --- نقطة البداية ---
+# --- تشغيل ---
 if st.session_state['logged_in']:
     main_app()
 else:
