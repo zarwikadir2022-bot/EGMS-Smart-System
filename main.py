@@ -4,28 +4,29 @@ import sqlite3
 from datetime import datetime
 import time
 from PIL import Image
-# محاولة استيراد مكتبة الباركود (مع معالجة الخطأ إذا لم تكن مثبتة)
+
+# محاولة استيراد مكتبة الكاميرا
 try:
     from pyzbar.pyzbar import decode
 except ImportError:
     decode = None
 
-# --- 1. إعدادات الصفحة والتصميم ---
-st.set_page_config(page_title="Smart Shop | Camera Edition", page_icon="🛒", layout="wide")
+# --- 1. إعدادات الصفحة ---
+st.set_page_config(page_title="Smart Shop | V2", page_icon="🛒", layout="wide")
 
 st.markdown("""
 <style>
     .stApp {background-color: #f8f9fa; color: #333;}
     section[data-testid="stSidebar"] {background-color: #2c3e50; color: white;}
-    div[data-testid="stSidebarUserContent"] {color: white;}
     .metric-box {background-color: white; border-radius: 10px; padding: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-left: 5px solid #3498db; text-align: center;}
     .big-btn button {width: 100%; height: 60px; font-size: 20px; background-color: #27ae60; color: white; border: none; border-radius: 8px;}
     .big-btn button:hover {background-color: #2ecc71;}
-    .alert-box {background-color: #ffeaa7; padding: 10px; border-radius: 5px; border: 1px solid #fdcb6e; color: #d35400;}
+    /* تحسين شكل جدول السلة */
+    div[data-testid="stDataFrame"] {background-color: white; padding: 10px; border-radius: 10px;}
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. قاعدة البيانات (SQLite) ---
+# --- 2. قاعدة البيانات ---
 def init_db():
     conn = sqlite3.connect('shop_data.db', check_same_thread=False)
     c = conn.cursor()
@@ -53,18 +54,20 @@ def add_debt(customer_id, amount):
     c.execute("UPDATE customers SET debt = debt + ? WHERE id=?", (amount, customer_id))
     conn.commit()
 
-# دالة لإضافة منتج للسلة
-def add_to_cart_logic(barcode):
+# دالة الإضافة (معدلة لتقبل الكمية)
+def add_to_cart_logic(barcode, quantity=1):
     prod = get_product(barcode)
     if prod:
         found = False
         for item in st.session_state['cart']:
             if item['barcode'] == prod[0]:
-                item['qty'] += 1
+                item['qty'] += quantity # إضافة الكمية المحددة
                 found = True
                 break
         if not found:
-            st.session_state['cart'].append({'barcode': prod[0], 'name': prod[1], 'price': prod[2], 'qty': 1})
+            st.session_state['cart'].append({
+                'barcode': prod[0], 'name': prod[1], 'price': prod[2], 'qty': quantity
+            })
         return True, prod[1]
     return False, None
 
@@ -75,106 +78,121 @@ if 'cart' not in st.session_state: st.session_state['cart'] = []
 def main():
     with st.sidebar:
         st.title("🛒 Smart Shop")
+        st.caption("نظام إدارة المغازة الذكي V2")
         st.markdown("---")
         menu = st.radio("القائمة", ["💰 نقطة البيع (Caisse)", "📦 إدارة السلع (Stock)", "📒 دفتر الكريدي (Dettes)", "📊 الإحصائيات"])
         
         if decode is None:
-            st.error("⚠️ مكتبة pyzbar غير مثبتة! لن تعمل الكاميرا.")
-            st.code("pip install pyzbar pillow")
+            st.warning("⚠️ ملاحظة: الكاميرا تتطلب مكتبة pyzbar.")
 
     # ==========================
-    # 1. نقطة البيع (POS) - مع الكاميرا
+    # 1. نقطة البيع (Caisse)
     # ==========================
     if menu == "💰 نقطة البيع (Caisse)":
         st.header("💰 نقطة البيع")
         
-        # --- قسم الكاميرا والبحث ---
-        c1, c2 = st.columns([1, 2])
-        
-        with c1:
-            st.markdown("### 📷 ماسح الكاميرا")
-            use_cam = st.checkbox("تفعيل الكاميرا")
-            if use_cam and decode:
-                # التقاط الصورة
-                img_file = st.camera_input("وجّه الكاميرا نحو الباركود", label_visibility="collapsed")
+        # --- قسم الإدخال (نموذج Form) ---
+        with st.container():
+            st.markdown("#### ➕ إضافة منتج")
+            
+            # نستخدم Form لكي نتمكن من إدخال الباركود والكمية معاً ثم نضغط Enter مرة واحدة
+            with st.form("pos_entry", clear_on_submit=True):
+                c1, c2, c3 = st.columns([3, 1, 1])
                 
-                if img_file:
-                    # تحويل الصورة وقراءة الباركود
-                    image = Image.open(img_file)
-                    decoded_objects = decode(image)
-                    
-                    if decoded_objects:
-                        for obj in decoded_objects:
-                            scanned_code = obj.data.decode("utf-8")
-                            st.success(f"تم التقاط: {scanned_code}")
-                            
-                            # إضافة المنتج للسلة
-                            success, p_name = add_to_cart_logic(scanned_code)
-                            if success:
-                                st.toast(f"✅ أضيف: {p_name}")
-                            else:
-                                st.error("❌ منتج غير مسجل!")
-                    else:
-                        st.warning("⚠️ لم يتم التعرف على باركود.")
-
-        with c2:
-            st.markdown("### ⌨️ إدخال يدوي / قارئ ليزر")
-            manual_code = st.text_input("امسح أو اكتب الباركود واضغط Enter:", key="man_input")
-            if manual_code:
-                success, p_name = add_to_cart_logic(manual_code)
+                with c1:
+                    code_input = st.text_input("الباركود (امسح أو اكتب):", key="code_in")
+                with c2:
+                    qty_input = st.number_input("الكمية:", min_value=1, value=1, step=1, key="qty_in")
+                with c3:
+                    # فراغ لتنسيق الزر
+                    st.write("")
+                    st.write("") 
+                    submit_btn = st.form_submit_button("إضافة 🛒", use_container_width=True)
+            
+            # منطق الإضافة عند الضغط
+            if submit_btn and code_input:
+                success, p_name = add_to_cart_logic(code_input, qty_input)
                 if success:
-                    st.toast(f"✅ أضيف: {p_name}")
-                    # تفريغ الحقل عن طريق إعادة التشغيل (خدعة بسيطة لتنظيف الخانة للقارئ اليدوي)
-                    # st.rerun() # يمكن تفعيلها إذا أردت تنظيف الخانة فوراً
+                    st.toast(f"✅ تمت إضافة {qty_input} من: {p_name}")
                 else:
-                    st.error("❌ منتج غير مسجل بالمخزون")
+                    st.error(f"❌ المنتج رقم {code_input} غير موجود!")
+
+        # --- قسم الكاميرا (اختياري) ---
+        with st.expander("📷 استخدام الكاميرا (للمسح السريع)"):
+            if decode:
+                cam_img = st.camera_input("التقاط صورة للباركود")
+                if cam_img:
+                    decoded = decode(Image.open(cam_img))
+                    if decoded:
+                        code_cam = decoded[0].data.decode("utf-8")
+                        # الكاميرا تضيف 1 افتراضياً
+                        succ, name = add_to_cart_logic(code_cam, 1)
+                        if succ: st.success(f"تم التقاط: {name}")
+                        else: st.error("منتج غير مسجل")
+            else:
+                st.info("الكاميرا غير مفعلة (مكتبة pyzbar مفقودة).")
 
         st.markdown("---")
 
         # --- عرض السلة ---
         if st.session_state['cart']:
+            st.subheader("🛒 السلة الحالية")
             cart_df = pd.DataFrame(st.session_state['cart'])
-            cart_df['Total'] = cart_df['price'] * cart_df['qty']
+            cart_df['المجموع'] = cart_df['price'] * cart_df['qty']
             
-            st.dataframe(cart_df, use_container_width=True, column_config={
-                "name": "المنتج", "price": "السعر", "qty": "الكمية", "Total": "المجموع"
-            })
+            # عرض الجدول
+            st.dataframe(
+                cart_df, 
+                column_config={
+                    "name": "المنتج", 
+                    "price": st.column_config.NumberColumn("السعر", format="%.3f د.ت"),
+                    "qty": "الكمية", 
+                    "المجموع": st.column_config.NumberColumn("الإجمالي", format="%.3f د.ت")
+                },
+                use_container_width=True
+            )
             
-            total_sum = cart_df['Total'].sum()
+            # زر لتفريغ السلة (إلغاء البيع)
+            if st.button("❌ تفريغ السلة"):
+                st.session_state['cart'] = []
+                st.rerun()
+
+            total_sum = cart_df['المجموع'].sum()
             
+            st.markdown("---")
             col_tot, col_pay = st.columns([1, 2])
             with col_tot:
-                st.metric("المجموع الكلي", f"{total_sum:.3f} TND")
+                st.metric("المبلغ الإجمالي", f"{total_sum:.3f} TND")
             
             with col_pay:
                 st.markdown('<div class="big-btn">', unsafe_allow_html=True)
-                pay_method = st.radio("طريقة الدفع:", ["كاش (Cash)", "كريدي (Crédit)"], horizontal=True)
+                pay_method = st.radio("الدفع:", ["كاش (Cash)", "كريدي (Crédit)"], horizontal=True)
                 
-                customer_select = None
+                cust_id = None
                 if pay_method == "كريدي (Crédit)":
-                    cust_df = pd.read_sql("SELECT id, name FROM customers", conn)
-                    if not cust_df.empty:
-                        cust_dict = dict(zip(cust_df['name'], cust_df['id']))
-                        customer_name = st.selectbox("اختر الحريف:", list(cust_dict.keys()))
-                        if customer_name: customer_select = cust_dict[customer_name]
+                    custs = pd.read_sql("SELECT id, name FROM customers", conn)
+                    if not custs.empty:
+                        c_dict = dict(zip(custs['name'], custs['id']))
+                        c_name = st.selectbox("الحريف:", list(c_dict.keys()))
+                        cust_id = c_dict[c_name] if c_name else None
                     else:
-                        st.warning("لا يوجد حرفاء مسجلين!")
+                        st.warning("لا يوجد حرفاء! أضفهم من دفتر الكريدي.")
 
                 if st.button("✅ إتمام البيع (Checkout)"):
-                    if pay_method == "كريدي (Crédit)" and not customer_select:
-                        st.error("يجب اختيار حريف للكريدي!")
+                    if pay_method == "كريدي (Crédit)" and not cust_id:
+                        st.error("اختر الحريف أولاً!")
                     else:
-                        # 1. المخزون
+                        # تنفيذ البيع
                         for item in st.session_state['cart']:
                             update_stock(item['barcode'], item['qty'])
-                        # 2. المبيعات
+                        
                         c = conn.cursor()
                         c.execute("INSERT INTO sales (date, total, type, customer_id) VALUES (?, ?, ?, ?)", 
-                                  (datetime.now().strftime("%Y-%m-%d %H:%M"), total_sum, pay_method, customer_select))
-                        # 3. الدين
-                        if pay_method == "كريدي (Crédit)" and customer_select:
-                            add_debt(customer_select, total_sum)
-                            st.warning(f"📒 تم تقييد {total_sum} د على {customer_name}")
+                                  (datetime.now().strftime("%Y-%m-%d %H:%M"), total_sum, pay_method, cust_id))
+                        
+                        if pay_method == "كريدي (Crédit)":
+                            add_debt(cust_id, total_sum)
+                            st.warning(f"تم تقييد الدين على {c_name}")
                         
                         conn.commit()
                         st.success("🎉 عملية ناجحة!")
@@ -183,111 +201,107 @@ def main():
                         time.sleep(1)
                         st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
-                
-                # طباعة التوصيل
-                if st.checkbox("🖨️ طباعة التوصيل"):
-                    receipt = f"""
-                    --- MAGASIN ---
-                    Date: {datetime.now().strftime("%Y-%m-%d %H:%M")}
-                    Total: {total_sum:.3f} TND
-                    ---------------
-                    Merci de votre visite!
-                    """
-                    st.code(receipt)
+
         else:
-            st.info("🛒 السلة فارغة..")
+            st.info("السلة فارغة.. ابدأ بإضافة المنتجات.")
 
     # ==========================
     # 2. إدارة السلع (Stock)
     # ==========================
     elif menu == "📦 إدارة السلع (Stock)":
-        st.header("📦 المخزون")
+        st.header("📦 إدارة المخزون")
         
-        # إضافة بالكاميرا أيضاً
-        with st.expander("➕ إضافة منتج جديد (يدوي أو كاميرا)"):
-            c1, c2 = st.columns([1,2])
-            with c1:
-                use_cam_add = st.checkbox("استعمال الكاميرا للباركود")
-                scan_val = ""
-                if use_cam_add and decode:
-                    img_add = st.camera_input("صور الباركود للإضافة", key="cam_add")
-                    if img_add:
-                        decoded_add = decode(Image.open(img_add))
-                        if decoded_add:
-                            scan_val = decoded_add[0].data.decode("utf-8")
-                            st.success(f"تم قراءة: {scan_val}")
-
-            with st.form("add_prod"):
-                # إذا قرأنا من الكاميرا نضع القيمة، وإلا نتركها فارغة للكتابة
-                new_bar = st.text_input("الباركود", value=scan_val)
-                new_name = st.text_input("اسم المنتج")
-                col_p, col_q = st.columns(2)
-                with col_p: new_price = st.number_input("سعر البيع", min_value=0.0, step=0.1)
-                with col_q: new_stock = st.number_input("الكمية", min_value=0, step=1)
-                new_min = st.number_input("تنبيه النقص عند", value=5)
+        with st.expander("➕ إضافة / تعديل منتج"):
+            with st.form("prod_form", clear_on_submit=True):
+                c1, c2 = st.columns(2)
+                with c1: 
+                    p_bar = st.text_input("الباركود")
+                    p_name = st.text_input("الاسم")
+                with c2:
+                    p_price = st.number_input("السعر", min_value=0.0, step=0.100, format="%.3f")
+                    p_stock = st.number_input("الكمية", min_value=0, step=1)
                 
-                if st.form_submit_button("حفظ المنتج"):
+                p_min = st.number_input("تنبيه النقص عند", value=5)
+                
+                if st.form_submit_button("حفظ"):
                     try:
+                        # نستخدم REPLACE ليعمل كـ (إضافة جديد) أو (تحديث قديم) إذا الباركود موجود
                         c = conn.cursor()
-                        c.execute("INSERT INTO products VALUES (?,?,?,?,?)", (new_bar, new_name, new_price, new_stock, new_min))
+                        c.execute("INSERT OR REPLACE INTO products VALUES (?,?,?,?,?)", 
+                                  (p_bar, p_name, p_price, p_stock, p_min))
                         conn.commit()
-                        st.success("تم الحفظ!")
-                    except:
-                        st.error("هذا الباركود مسجل مسبقاً!")
+                        st.success("تم الحفظ بنجاح!")
+                    except Exception as e:
+                        st.error(f"خطأ: {e}")
 
-        st.subheader("قائمة السلع")
-        df_prods = pd.read_sql("SELECT * FROM products", conn)
-        search = st.text_input("🔍 بحث:")
-        if search:
-            df_prods = df_prods[df_prods['name'].str.contains(search, case=False)]
-        st.dataframe(df_prods, use_container_width=True)
+        st.subheader("جرد السلع")
+        df = pd.read_sql("SELECT * FROM products", conn)
+        
+        # بحث سريع
+        search_q = st.text_input("🔍 بحث باسم المنتج أو الباركود:")
+        if search_q:
+            df = df[df['name'].str.contains(search_q, case=False) | df['barcode'].str.contains(search_q)]
+            
+        st.dataframe(df, use_container_width=True)
 
     # ==========================
     # 3. دفتر الكريدي
     # ==========================
     elif menu == "📒 دفتر الكريدي (Dettes)":
-        st.header("📒 دفتر الكريدي")
+        st.header("📒 إدارة الديون")
+        
         c1, c2 = st.columns(2)
         with c1:
-            with st.form("new_cust"):
-                st.subheader("حريف جديد")
-                c_name = st.text_input("الاسم")
-                c_phone = st.text_input("الهاتف")
+            st.subheader("تسجيل حريف")
+            with st.form("cust_form", clear_on_submit=True):
+                nm = st.text_input("الاسم")
+                ph = st.text_input("الهاتف")
                 if st.form_submit_button("إضافة"):
                     c = conn.cursor()
-                    c.execute("INSERT INTO customers (name, phone, debt) VALUES (?,?,0)", (c_name, c_phone))
+                    c.execute("INSERT INTO customers (name, phone, debt) VALUES (?,?,0)", (nm, ph))
                     conn.commit()
                     st.success("تم!")
+
         with c2:
-            st.subheader("خلاص")
-            cust_df = pd.read_sql("SELECT * FROM customers", conn)
-            if not cust_df.empty:
-                pay_cust = st.selectbox("الحريف:", cust_df['name'])
-                amount_pay = st.number_input("المبلغ المدفوع:", min_value=0.0)
-                if st.button("تسجيل الدفع"):
-                    cust_id = cust_df[cust_df['name'] == pay_cust]['id'].values[0]
-                    c = conn.cursor()
-                    c.execute("UPDATE customers SET debt = debt - ? WHERE id=?", (amount_pay, cust_id))
-                    conn.commit()
-                    st.success("تم الخلاص!")
-                    st.rerun()
-        
-        st.dataframe(cust_df, use_container_width=True)
+            st.subheader("استخلاص دين")
+            custs = pd.read_sql("SELECT * FROM customers WHERE debt > 0", conn)
+            if not custs.empty:
+                c_pay = st.selectbox("اختر الحريف:", custs['name'])
+                if c_pay:
+                    curr_debt = custs[custs['name']==c_pay]['debt'].values[0]
+                    st.info(f"الدين الحالي: {curr_debt:.3f} د.ت")
+                    
+                    amt = st.number_input("المبلغ المقبوض:", min_value=0.0, max_value=curr_debt, step=1.0)
+                    if st.button("تأكيد الخلاص"):
+                        cid = custs[custs['name']==c_pay]['id'].values[0]
+                        c = conn.cursor()
+                        c.execute("UPDATE customers SET debt = debt - ? WHERE id=?", (amt, cid))
+                        conn.commit()
+                        st.success("تم الخلاص!")
+                        st.rerun()
+            else:
+                st.success("لا توجد ديون حالياً! 👏")
+
+        st.markdown("---")
+        st.subheader("قائمة الكريدي")
+        all_custs = pd.read_sql("SELECT name, phone, debt FROM customers", conn)
+        st.dataframe(all_custs.style.highlight_max(subset=['debt'], color='#ffcccc'), use_container_width=True)
 
     # ==========================
     # 4. الإحصائيات
     # ==========================
     elif menu == "📊 الإحصائيات":
-        st.header("📊 الأرقام")
-        total_sales = pd.read_sql("SELECT SUM(total) FROM sales", conn).iloc[0,0] or 0
-        total_credits = pd.read_sql("SELECT SUM(debt) FROM customers", conn).iloc[0,0] or 0
+        st.header("📊 ملخص النشاط")
+        
+        tot_sales = pd.read_sql("SELECT SUM(total) FROM sales", conn).iloc[0,0] or 0
+        tot_debt = pd.read_sql("SELECT SUM(debt) FROM customers", conn).iloc[0,0] or 0
         
         c1, c2 = st.columns(2)
-        c1.metric("المبيعات", f"{total_sales:.3f} TND")
-        c2.metric("الديون (الكريدي)", f"{total_credits:.3f} TND")
+        c1.metric("مجموع المبيعات", f"{tot_sales:.3f} TND")
+        c2.metric("مجموع الكريدي (الخارج)", f"{tot_debt:.3f} TND")
         
-        st.subheader("سجل العمليات")
-        st.dataframe(pd.read_sql("SELECT * FROM sales ORDER BY id DESC LIMIT 10", conn), use_container_width=True)
+        st.subheader("آخر العمليات")
+        st.dataframe(pd.read_sql("SELECT * FROM sales ORDER BY id DESC LIMIT 15", conn), use_container_width=True)
 
 if __name__ == '__main__':
     main()
