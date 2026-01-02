@@ -1,7 +1,4 @@
 streamlit
 pandas
-sqlalchemy
-plotly
-fpdf
-scikit-learn
-google-generativeai
+pillow
+pyzbar
