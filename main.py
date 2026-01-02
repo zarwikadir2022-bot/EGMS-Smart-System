@@ -5,31 +5,29 @@ from datetime import datetime
 import time
 from PIL import Image
 
-# محاولة استيراد مكتبة الكاميرا
+# --- تهيئة مكتبة الباركود (مع حماية ضد الأخطاء) ---
 try:
     from pyzbar.pyzbar import decode
 except ImportError:
     decode = None
 
 # --- 1. إعدادات الصفحة ---
-st.set_page_config(page_title="Smart Shop | V2.1", page_icon="🛒", layout="wide")
+st.set_page_config(page_title="Smart Shop | V2.2", page_icon="🛒", layout="wide")
 
 st.markdown("""
 <style>
     .stApp {background-color: #f8f9fa; color: #333;}
     section[data-testid="stSidebar"] {background-color: #2c3e50; color: white;}
-    .metric-box {background-color: white; border-radius: 10px; padding: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-left: 5px solid #3498db; text-align: center;}
+    /* تحسين شكل الأزرار */
     .big-btn button {width: 100%; height: 60px; font-size: 20px; background-color: #27ae60; color: white; border: none; border-radius: 8px;}
     .big-btn button:hover {background-color: #2ecc71;}
-    div[data-testid="stDataFrame"] {background-color: white; padding: 10px; border-radius: 10px;}
-    
-    /* تنسيق الوصل */
-    .receipt {
-        background-color: #fff;
-        padding: 20px;
-        border: 1px dashed #333;
+    /* تحسين الخط في الوصل */
+    .receipt-box {
         font-family: 'Courier New', Courier, monospace;
-        margin-top: 10px;
+        background-color: #fff;
+        padding: 15px;
+        border: 1px dashed #000;
+        white-space: pre-wrap; /* للحفاظ على تنسيق الأسطر */
     }
 </style>
 """, unsafe_allow_html=True)
@@ -38,6 +36,7 @@ st.markdown("""
 def init_db():
     conn = sqlite3.connect('shop_data.db', check_same_thread=False)
     c = conn.cursor()
+    # جداول البيانات (تمت مراجعتها)
     c.execute('''CREATE TABLE IF NOT EXISTS products (barcode TEXT PRIMARY KEY, name TEXT, price REAL, stock INTEGER, min_stock INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS customers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, phone TEXT, debt REAL)''')
     c.execute('''CREATE TABLE IF NOT EXISTS sales (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, total REAL, type TEXT, customer_id INTEGER)''')
@@ -78,20 +77,45 @@ def add_to_cart_logic(barcode, quantity=1):
         return True, prod[1]
     return False, None
 
+# دالة لتوليد نص الوصل المنسق
+def generate_receipt_text(cart_items, total, date, client_name, pay_type):
+    lines = []
+    lines.append("******************************")
+    lines.append("       MAGASIN TUNISIE        ")
+    lines.append("******************************")
+    lines.append(f"Date: {date}")
+    lines.append(f"Client: {client_name}")
+    lines.append("------------------------------")
+    lines.append(f"{'Article':<15} {'Qt':<3} {'Prix'}")
+    lines.append("------------------------------")
+    for item in cart_items:
+        # تنسيق السطر: الاسم (أول 15 حرف) - الكمية - السعر الإجمالي
+        name_short = item['name'][:15]
+        line_price = item['price'] * item['qty']
+        lines.append(f"{name_short:<15} x{item['qty']:<2} {line_price:.3f}")
+    lines.append("------------------------------")
+    lines.append(f"TOTAL:          {total:.3f} TND")
+    lines.append(f"Mode:           {pay_type}")
+    lines.append("******************************")
+    lines.append("     Merci de votre visite    ")
+    lines.append("******************************")
+    return "\n".join(lines)
+
 # --- 4. إدارة الجلسة ---
 if 'cart' not in st.session_state: st.session_state['cart'] = []
-if 'last_receipt' not in st.session_state: st.session_state['last_receipt'] = None # لتخزين آخر وصل
+# متغير لتخزين الوصل الجاهز للتحميل
+if 'receipt_data' not in st.session_state: st.session_state['receipt_data'] = None 
 
 # --- 5. التطبيق الرئيسي ---
 def main():
     with st.sidebar:
         st.title("🛒 Smart Shop")
-        st.caption("V2.1 - الإصدار الكامل")
+        st.caption("System V2.2 - Print Edition")
         st.markdown("---")
         menu = st.radio("القائمة", ["💰 نقطة البيع (Caisse)", "📦 إدارة السلع (Stock)", "📒 دفتر الكريدي (Dettes)", "📊 الإحصائيات"])
         
         if decode is None:
-            st.warning("⚠️ الكاميرا غير مفعلة (مكتبة pyzbar مفقودة).")
+            st.warning("⚠️ تنبيه: الكاميرا غير مفعلة (pyzbar مفقود).")
 
     # ==========================
     # 1. نقطة البيع (Caisse)
@@ -99,13 +123,13 @@ def main():
     if menu == "💰 نقطة البيع (Caisse)":
         st.header("💰 نقطة البيع")
         
-        # --- قسم الإدخال ---
+        # --- الإدخال اليدوي ---
         with st.container():
             st.markdown("#### ➕ إضافة منتج")
             with st.form("pos_entry", clear_on_submit=True):
                 c1, c2, c3 = st.columns([3, 1, 1])
-                with c1: code_input = st.text_input("الباركود (امسح أو اكتب):", key="code_in")
-                with c2: qty_input = st.number_input("الكمية:", min_value=1, value=1, step=1, key="qty_in")
+                with c1: code_input = st.text_input("الباركود:", key="code_in")
+                with c2: qty_input = st.number_input("الكمية:", min_value=1, value=1, step=1)
                 with c3: 
                     st.write("")
                     st.write("")
@@ -113,52 +137,49 @@ def main():
             
             if submit_btn and code_input:
                 success, p_name = add_to_cart_logic(code_input, qty_input)
-                if success: st.toast(f"✅ تمت إضافة {qty_input} من: {p_name}")
-                else: st.error(f"❌ المنتج رقم {code_input} غير موجود!")
+                if success: st.toast(f"✅ أضيف: {p_name}")
+                else: st.error(f"❌ منتج غير موجود!")
 
-        # --- قسم الكاميرا ---
-        with st.expander("📷 استخدام الكاميرا"):
+        # --- الكاميرا ---
+        with st.expander("📷 الكاميرا"):
             if decode:
-                cam_img = st.camera_input("التقاط صورة للباركود")
+                cam_img = st.camera_input("مسح الباركود")
                 if cam_img:
                     decoded = decode(Image.open(cam_img))
                     if decoded:
                         code_cam = decoded[0].data.decode("utf-8")
                         succ, name = add_to_cart_logic(code_cam, 1)
                         if succ: st.success(f"تم التقاط: {name}")
-                        else: st.error("منتج غير مسجل")
-            else: st.info("الكاميرا غير مفعلة.")
+                        else: st.error("غير مسجل")
+            else: st.info("المكتبة غير مثبتة.")
 
         st.markdown("---")
 
-        # --- عرض السلة ---
-        col_cart, col_receipt = st.columns([2, 1]) # تقسيم الشاشة: سلة يمين، وصل يسار
+        # --- عرض السلة والوصل ---
+        col_cart, col_receipt = st.columns([2, 1])
         
         with col_cart:
             if st.session_state['cart']:
-                st.subheader("🛒 السلة الحالية")
+                st.subheader("🛒 السلة")
                 cart_df = pd.DataFrame(st.session_state['cart'])
-                cart_df['المجموع'] = cart_df['price'] * cart_df['qty']
+                cart_df['Total'] = cart_df['price'] * cart_df['qty']
                 
                 st.dataframe(cart_df, column_config={
-                        "name": "المنتج", 
-                        "price": st.column_config.NumberColumn("السعر", format="%.3f د.ت"),
-                        "qty": "الكمية", 
-                        "المجموع": st.column_config.NumberColumn("الإجمالي", format="%.3f د.ت")
+                        "name": "المنتج", "price": "سعر", "qty": "كمية", "Total": "مجموع"
                     }, use_container_width=True)
                 
                 if st.button("❌ تفريغ السلة"):
                     st.session_state['cart'] = []
                     st.rerun()
 
-                total_sum = cart_df['المجموع'].sum()
-                st.metric("المبلغ الإجمالي", f"{total_sum:.3f} TND")
+                total_sum = cart_df['Total'].sum()
+                st.metric("الإجمالي", f"{total_sum:.3f} TND")
                 
                 st.markdown('<div class="big-btn">', unsafe_allow_html=True)
                 pay_method = st.radio("الدفع:", ["كاش (Cash)", "كريدي (Crédit)"], horizontal=True)
                 
                 cust_id = None
-                cust_name_receipt = "Client Passager" # اسم افتراضي للوصل
+                cust_name_receipt = "Passager"
                 
                 if pay_method == "كريدي (Crédit)":
                     custs = pd.read_sql("SELECT id, name FROM customers", conn)
@@ -166,64 +187,57 @@ def main():
                         c_dict = dict(zip(custs['name'], custs['id']))
                         c_name = st.selectbox("الحريف:", list(c_dict.keys()))
                         cust_id = c_dict[c_name] if c_name else None
-                        cust_name_receipt = c_name # تحديث الاسم للوصل
+                        cust_name_receipt = c_name
                     else: st.warning("لا يوجد حرفاء!")
 
-                if st.button("✅ إتمام البيع (Checkout)"):
+                if st.button("✅ إتمام البيع"):
                     if pay_method == "كريدي (Crédit)" and not cust_id:
-                        st.error("اختر الحريف أولاً!")
+                        st.error("اختر الحريف!")
                     else:
-                        # تنفيذ البيع
+                        # 1. تحديث المخزون
                         for item in st.session_state['cart']:
                             update_stock(item['barcode'], item['qty'])
                         
+                        # 2. حفظ المبيعات
+                        curr_date = datetime.now().strftime("%Y-%m-%d %H:%M")
                         c = conn.cursor()
                         c.execute("INSERT INTO sales (date, total, type, customer_id) VALUES (?, ?, ?, ?)", 
-                                  (datetime.now().strftime("%Y-%m-%d %H:%M"), total_sum, pay_method, cust_id))
+                                  (curr_date, total_sum, pay_method, cust_id))
                         
+                        # 3. تحديث الدين
                         if pay_method == "كريدي (Crédit)":
                             add_debt(cust_id, total_sum)
-                            st.warning(f"تم تقييد الدين على {c_name}")
                         
                         conn.commit()
                         
-                        # --- إنشاء الوصل وحفظه في الذاكرة ---
-                        items_str = ""
-                        for item in st.session_state['cart']:
-                            items_str += f"{item['name']} (x{item['qty']}) : {item['price']*item['qty']:.3f}\n"
+                        # 4. تجهيز الوصل للطباعة
+                        receipt_txt = generate_receipt_text(st.session_state['cart'], total_sum, curr_date, cust_name_receipt, pay_method)
+                        st.session_state['receipt_data'] = receipt_txt
                         
-                        receipt_text = f"""
-                        ***************************
-                              MAGASIN TUNISIE
-                        ***************************
-                        Date: {datetime.now().strftime("%Y-%m-%d %H:%M")}
-                        Client: {cust_name_receipt}
-                        ---------------------------
-                        {items_str}
-                        ---------------------------
-                        TOTAL: {total_sum:.3f} TND
-                        Type: {pay_method}
-                        ***************************
-                        Merci de votre visite!
-                        """
-                        st.session_state['last_receipt'] = receipt_text
-                        
-                        st.success("🎉 عملية ناجحة!")
-                        st.balloons()
                         st.session_state['cart'] = [] # تفريغ السلة
-                        time.sleep(1)
-                        st.rerun() # إعادة تحميل الصفحة لإظهار الوصل الجديد
+                        st.success("تمت العملية بنجاح!")
+                        st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
             else:
-                st.info("السلة فارغة.. ابدأ بإضافة المنتجات.")
+                st.info("السلة فارغة.")
 
-        # --- منطقة الوصل (تظهر دائماً على اليسار إذا كان هناك وصل سابق) ---
+        # --- قسم طباعة الوصل (يظهر عند وجود وصل) ---
         with col_receipt:
-            if st.session_state.get('last_receipt'):
-                st.markdown("### 🖨️ آخر وصل")
-                st.code(st.session_state['last_receipt'], language="text")
-                if st.button("🗑️ إخفاء الوصل"):
-                    st.session_state['last_receipt'] = None
+            if st.session_state['receipt_data']:
+                st.markdown("### 🖨️ الوصل جاهز")
+                # عرض شكل الوصل
+                st.text(st.session_state['receipt_data'])
+                
+                # زر التحميل (للطباعة)
+                st.download_button(
+                    label="🖨️ تحميل وطباعة (Ticket)",
+                    data=st.session_state['receipt_data'],
+                    file_name=f"ticket_{int(time.time())}.txt",
+                    mime="text/plain"
+                )
+                
+                if st.button("🗑️ إغلاق الوصل"):
+                    st.session_state['receipt_data'] = None
                     st.rerun()
 
     # ==========================
@@ -251,7 +265,7 @@ def main():
 
         st.subheader("جرد السلع")
         df = pd.read_sql("SELECT * FROM products", conn)
-        search_q = st.text_input("🔍 بحث باسم المنتج أو الباركود:")
+        search_q = st.text_input("🔍 بحث:")
         if search_q: df = df[df['name'].str.contains(search_q, case=False) | df['barcode'].str.contains(search_q)]
         st.dataframe(df, use_container_width=True)
 
@@ -287,11 +301,8 @@ def main():
                         conn.commit()
                         st.success("تم الخلاص!")
                         st.rerun()
-            else: st.success("لا توجد ديون حالياً! 👏")
-        st.markdown("---")
-        st.subheader("قائمة الكريدي")
-        all_custs = pd.read_sql("SELECT name, phone, debt FROM customers", conn)
-        st.dataframe(all_custs.style.highlight_max(subset=['debt'], color='#ffcccc'), use_container_width=True)
+            else: st.success("لا ديون!")
+        st.dataframe(pd.read_sql("SELECT name, phone, debt FROM customers", conn), use_container_width=True)
 
     # ==========================
     # 4. الإحصائيات
@@ -301,9 +312,8 @@ def main():
         tot_sales = pd.read_sql("SELECT SUM(total) FROM sales", conn).iloc[0,0] or 0
         tot_debt = pd.read_sql("SELECT SUM(debt) FROM customers", conn).iloc[0,0] or 0
         c1, c2 = st.columns(2)
-        c1.metric("مجموع المبيعات", f"{tot_sales:.3f} TND")
-        c2.metric("مجموع الكريدي (الخارج)", f"{tot_debt:.3f} TND")
-        st.subheader("آخر العمليات")
+        c1.metric("المبيعات", f"{tot_sales:.3f} TND")
+        c2.metric("الديون", f"{tot_debt:.3f} TND")
         st.dataframe(pd.read_sql("SELECT * FROM sales ORDER BY id DESC LIMIT 15", conn), use_container_width=True)
 
 if __name__ == '__main__':
