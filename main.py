@@ -51,7 +51,7 @@ def init_db():
             date_debut TEXT,
             date_fin TEXT
         );
-    ''');
+    ''')
     conn.commit()
     return conn
 
@@ -60,12 +60,15 @@ cursor = conn.cursor()
 
 # --- عنوان التطبيق الرئيسي ---
 st.title("🏗️ Tableau de Bord - Suivi des Dalles (Pont Gholoul)")
-st.markdown("لوحة التحكم الذكية لمتابعة دالات القنطرة (DP1 - DP5) مع التفاصيل اليومية للعمال والتواريخ.")
+st.markdown("لوحة التحكم الذكية لمتابعة دالات القنطرة (من DP1 إلى DP12) مع التفاصيل اليومية للعمال والتواريخ.")
 
 # --- الشريط الجانبي للإدخال ---
 st.sidebar.header("📌 تسجيل دالة وتواريخ العمل")
 with st.sidebar.form("dalle_form", clear_on_submit=True):
-    id_dalle = st.selectbox("معرف الدالة (Composant)", ["DP1", "DP2", "DP3", "DP4", "DP5"])
+    # قائمة الدالات المحدثة لتشمل DP1 حتى DP12
+    dalles_list = [f"DP{i}" for i in range(1, 13)]
+    id_dalle = st.selectbox("معرف الدالة (Composant)", dalles_list)
+    
     type_dalle = st.selectbox("نوع العمل", ["Coffrage", "Ferraillage", "Coulage", "Pose"])
     etape = st.selectbox("المرحلة", ["Préparation", "En cours", "Terminé"])
     specialite = st.text_input("تخصص العمال", "بنّاء / حدّاد / مساح")
@@ -92,7 +95,7 @@ with st.sidebar.form("dalle_form", clear_on_submit=True):
 df = pd.read_sql("SELECT * FROM dalles", conn)
 
 if not df.empty:
-    # --- قسم الإحصائيات (بدون جمع عشوائي للعمال) ---
+    # --- قسم الإحصائيات ---
     col1, col2, col3 = st.columns(3)
     col1.metric("📊 إجمالي العمليات المسجلة", len(df))
     col2.metric("🏗️ الدالات النشطة", df['id_dalle'].nunique())
@@ -105,7 +108,6 @@ if not df.empty:
     gcol1, gcol2 = st.columns(2)
     
     with gcol1:
-        # رسم بياني يوضح عدد العمال لكل دالة وتاريخ بدء
         fig_effectif = px.bar(
             df, x="date_debut", y="effectif", color="id_dalle",
             title="عدد العمال التفصيلي حسب تواريخ العمل والدالات",
@@ -117,7 +119,6 @@ if not df.empty:
         st.plotly_chart(fig_effectif, use_container_width=True)
         
     with gcol2:
-        # رسم بياني دائري يوضح حالات العمليات
         fig_status = px.pie(
             df, names="statut", values="effectif",
             title="توزيع حصص العمال حسب حالات العمليات",
@@ -129,7 +130,7 @@ if not df.empty:
 
     st.markdown("---")
 
-    # --- جدول البيانات المفصل متضمن تواريخ البدء والانتهاء وعمال كل يوم ---
+    # --- جدول البيانات المفصل ---
     st.subheader("📋 جدول المتابعة المفصل (التواريخ والعمال)")
     st.dataframe(df, use_container_width=True)
     
@@ -142,4 +143,4 @@ if not df.empty:
         mime='text/csv',
     )
 else:
-    st.info("📌 لا توجد بيانات مسجلة حتى الآن. استخدم القائمة الجانبية لإضافة أول دالة (DP1 - DP5) مع تواريخ العمل وعدد العمال التفصيلي.")
+    st.info("📌 لا توجد بيانات مسجلة حتى الآن. استخدم القائمة الجانبية لإضافة أول دالة مع تواريخ العمل وعدد العمال التفصيلي.")
