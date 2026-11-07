@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -25,36 +24,40 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- إعداد الاتصال بقاعدة بيانات SQL السحابية ---
+# --- إعداد الاتصال بقاعدة بيانات SQL السحابية مع الحماية ---
+conn = None
 try:
     conn = st.connection("postgresql", type="sql")
 except Exception as e:
-    st.error(f"Erreur de configuration de la base de données: {e}")
+    st.error(f"⚠️ Erreur de configuration: Veuillez configurer vos Secrets sur Streamlit Cloud. ({e})")
 
-# إنشاء الجدول تلقائياً إذا لم يكن موجوداً
+# إنشاء الجدول تلقائياً إذا كان الاتصال موجوداً
 def init_db():
-    try:
-        with conn.session as s:
-            s.execute(text('''
-                CREATE TABLE IF NOT EXISTS poutres (
-                    id SERIAL PRIMARY KEY,
-                    id_poutre TEXT,
-                    type TEXT,
-                    etape TEXT,
-                    specialite_ouvriers TEXT,
-                    effectif INTEGER,
-                    statut TEXT,
-                    date TEXT
-                );
-            '''))
-            s.commit()
-    except Exception as e:
-        st.error(f"Erreur lors de l'initialisation de la table: {e}")
+    if conn is not None:
+        try:
+            with conn.session as s:
+                s.execute(text('''
+                    CREATE TABLE IF NOT EXISTS poutres (
+                        id SERIAL PRIMARY KEY,
+                        id_poutre TEXT,
+                        type TEXT,
+                        etape TEXT,
+                        specialite_ouvriers TEXT,
+                        effectif INTEGER,
+                        statut TEXT,
+                        date TEXT
+                    );
+                '''))
+                s.commit()
+        except Exception as e:
+            st.error(f"Erreur lors de l'initialisation de la table: {e}")
 
 init_db()
 
 # --- جلب البيانات من SQL ---
 def load_data():
+    if conn is None:
+        return pd.DataFrame(columns=["ID_Poutre", "Type", "Etape", "Specialite_Ouvriers", "Effectif", "Statut", "Date"])
     try:
         df = conn.query("SELECT * FROM poutres;", ttl=0)
         if not df.empty and "id" in df.columns:
@@ -78,6 +81,9 @@ def load_data():
 
 # --- حفظ صف جديد في SQL ---
 def save_data_row(poutre_id, p_type, etape, specialite, effectif, statut, date_saisie):
+    if conn is None:
+        st.error("Aucune connexion à la base de données.")
+        return False
     try:
         with conn.session as s:
             s.execute(
@@ -103,6 +109,8 @@ def save_data_row(poutre_id, p_type, etape, specialite, effectif, statut, date_s
 
 # --- مسح الجدول بالكامل ---
 def clear_all_data():
+    if conn is None:
+        return False
     try:
         with conn.session as s:
             s.execute(text("DELETE FROM poutres;"))
@@ -274,4 +282,4 @@ if not df.empty and "ID_Poutre" in df.columns and len(df.dropna(subset=["ID_Pout
                 st.rerun()
 
 else:
-    st.info("📌 La base de données SQL est actuellement vide. Connectez-vous via la barre latérale pour ajouter le premier élément.")
+    st.info("📌 La base de données SQL est actuellement vide ou en attente de configuration. Connectez-vous via la barre latérale pour ajouter le premier élément.")
