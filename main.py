@@ -34,10 +34,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- إعداد قاعدة البيانات المحلية SQLite (مع تواريخ البدء والانتهاء) ---
+# --- إعداد قاعدة البيانات المحلية SQLite (نسخة مخصصة للأجزاء) ---
 @st.cache_resource
 def init_db():
-    conn = sqlite3.connect('gholoul_dalles_v2.db', check_same_thread=False)
+    conn = sqlite3.connect('gholoul_dalles_v3.db', check_same_thread=False)
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS dalles (
@@ -60,14 +60,13 @@ cursor = conn.cursor()
 
 # --- عنوان التطبيق الرئيسي ---
 st.title("🏗️ Tableau de Bord - Suivi des Dalles (Pont Gholoul)")
-st.markdown("لوحة التحكم الذكية لمتابعة دالات القنطرة (من DP1 إلى DP12) مع التفاصيل اليومية للعمال والتواريخ.")
+st.markdown("لوحة التحكم الذكية لمتابعة أجزاء ودالات القنطرة (مثل DP1-1, DP1-2) مع التفاصيل اليومية للعمال والتواريخ.")
 
 # --- الشريط الجانبي للإدخال ---
-st.sidebar.header("📌 تسجيل دالة وتواريخ العمل")
+st.sidebar.header("📌 تسجيل دالة وأجزائها")
 with st.sidebar.form("dalle_form", clear_on_submit=True):
-    # قائمة الدالات المحدثة لتشمل DP1 حتى DP12
-    dalles_list = [f"DP{i}" for i in range(1, 13)]
-    id_dalle = st.selectbox("معرف الدالة (Composant)", dalles_list)
+    # حقل نصي مرن لكتابة المعرف بالشكل المطلوب (مثل DP1-1 أو DP1-2)
+    id_dalle = st.text_input("معرف الدالة / الجزء (Ex: DP1-1, DP1-2)", value="DP1-1")
     
     type_dalle = st.selectbox("نوع العمل", ["Coffrage", "Ferraillage", "Coulage", "Pose"])
     etape = st.selectbox("المرحلة", ["Préparation", "En cours", "Terminé"])
@@ -98,19 +97,19 @@ if not df.empty:
     # --- قسم الإحصائيات ---
     col1, col2, col3 = st.columns(3)
     col1.metric("📊 إجمالي العمليات المسجلة", len(df))
-    col2.metric("🏗️ الدالات النشطة", df['id_dalle'].nunique())
+    col2.metric("🏗️ الأجزاء والدالات النشطة", df['id_dalle'].nunique())
     col3.metric("✅ العمليات المكتملة", len(df[df['statut'] == 'Validé']))
     
     st.markdown("---")
 
-    # --- الرسوم البيانية التفاعلية الملونة لتطور العمال حسب التواريخ ---
-    st.subheader("📈 تتبع عدد العمال اليومي وتوزيع العمليات")
+    # --- الرسوم البيانية التفاعلية الملونة لتطور العمال حسب التواريخ والأجزاء ---
+    st.subheader("📈 تتبع عدد العمال اليومي وتوزيع الأجزاء")
     gcol1, gcol2 = st.columns(2)
     
     with gcol1:
         fig_effectif = px.bar(
             df, x="date_debut", y="effectif", color="id_dalle",
-            title="عدد العمال التفصيلي حسب تواريخ العمل والدالات",
+            title="عدد العمال التفصيلي حسب تواريخ العمل وأجزاء الدالات",
             labels={"date_debut": "تاريخ البدء", "effectif": "عدد العمال"},
             template="plotly_white",
             color_discrete_sequence=px.colors.qualitative.Pastel
@@ -131,16 +130,16 @@ if not df.empty:
     st.markdown("---")
 
     # --- جدول البيانات المفصل ---
-    st.subheader("📋 جدول المتابعة المفصل (التواريخ والعمال)")
+    st.subheader("📋 جدول المتابعة المفصل (الأجزاء، التواريخ والعمال)")
     st.dataframe(df, use_container_width=True)
     
     # --- زر تصدير البيانات ---
     csv = df.to_csv(index=False).encode('utf-8')
     st.download_button(
-        label="📥 تحميل تقرير الدالات والعمال (CSV)",
+        label="📥 تحميل تقرير الدالات والأجزاء (CSV)",
         data=csv,
-        file_name='gholoul_dalles_details.csv',
+        file_name='gholoul_dalles_subparts.csv',
         mime='text/csv',
     )
 else:
-    st.info("📌 لا توجد بيانات مسجلة حتى الآن. استخدم القائمة الجانبية لإضافة أول دالة مع تواريخ العمل وعدد العمال التفصيلي.")
+    st.info("📌 لا توجد بيانات مسجلة حتى الآن. استخدم القائمة الجانبية لإضافة أول دالة بصيغة (مثل DP1-1) مع تواريخ العمل وعدد العمال.")
