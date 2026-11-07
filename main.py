@@ -34,7 +34,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- إعداد قاعدة البيانات المحلية SQLite (نسخة مخصصة للأجزاء) ---
+# --- إعداد قاعدة البيانات المحلية SQLite (مع إمكانية الحذف والإدارة) ---
 @st.cache_resource
 def init_db():
     conn = sqlite3.connect('gholoul_dalles_v3.db', check_same_thread=False)
@@ -62,33 +62,57 @@ cursor = conn.cursor()
 st.title("🏗️ Tableau de Bord - Suivi des Dalles (Pont Gholoul)")
 st.markdown("لوحة التحكم الذكية لمتابعة أجزاء ودالات القنطرة (مثل DP1-1, DP1-2) مع التفاصيل اليومية للعمال والتواريخ.")
 
-# --- الشريط الجانبي للإدخال ---
-st.sidebar.header("📌 تسجيل دالة وأجزائها")
-with st.sidebar.form("dalle_form", clear_on_submit=True):
-    # حقل نصي مرن لكتابة المعرف بالشكل المطلوب (مثل DP1-1 أو DP1-2)
-    id_dalle = st.text_input("معرف الدالة / الجزء (Ex: DP1-1, DP1-2)", value="DP1-1")
-    
-    type_dalle = st.selectbox("نوع العمل", ["Coffrage", "Ferraillage", "Coulage", "Pose"])
-    etape = st.selectbox("المرحلة", ["Préparation", "En cours", "Terminé"])
-    specialite = st.text_input("تخصص العمال", "بنّاء / حدّاد / مساح")
-    
-    # عدد العمال التفصيلي لهذا اليوم/المهمة
-    effectif = st.number_input("عدد العمال في هذا اليوم (Effectif)", min_value=1, value=6)
-    
-    # تواريخ البدء والانتهاء
-    date_debut = st.date_input("تاريخ البدء (Date de début)", value=date.today())
-    date_fin = st.date_input("تاريخ الانتهاء (Date de fin)", value=date.today())
-    
-    statut = st.selectbox("الحالة", ["Actif", "En attente", "Validé"])
-    
-    submitted = st.form_submit_button("💾 حفظ البيانات")
-    if submitted:
-        cursor.execute('''
-            INSERT INTO dalles (id_dalle, type, etape, specialite_ouvriers, effectif, statut, date_debut, date_fin)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (id_dalle, type_dalle, etape, specialite, effectif, statut, str(date_debut), str(date_fin)))
-        conn.commit()
-        st.sidebar.success("تم تسجيل بيانات الدالة بنجاح!")
+# --- نظام تسجيل الدخول في الشريط الجانبي ---
+st.sidebar.header("🔐 بوابة المشرف (Admin Login)")
+
+# تهيئة حالة الجلسة (Session State) لتسجيل الدخول
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    with st.sidebar.form("login_form"):
+        admin_pass = st.text_input("كلمة مرور المسؤول", type="password")
+        login_btn = st.form_submit_button("تسجيل الدخول")
+        if login_btn:
+            # كلمة المرور الخاصة بك (يمكنك تغييرها هنا متى شئت)
+            if admin_pass == "Kadirman1986":
+                st.session_state.authenticated = True
+                st.sidebar.success("تم تسجيل الدخول بنجاح!")
+                st.rerun()
+            else:
+                st.sidebar.error("كلمة المرور غير صحيحة!")
+else:
+    st.sidebar.success("مرحباً بك، المشرف (عبد القادر)")
+    if st.sidebar.button("تسجيل الخروج (Logout)"):
+        st.session_state.authenticated = False
+        st.rerun()
+
+st.sidebar.markdown("---")
+
+# --- نموذج الإدخال (متاح فقط للمشرف المسجل دخولاً) ---
+if st.session_state.authenticated:
+    st.sidebar.header("📌 تسجيل وتعديل دالة جديدة")
+    with st.sidebar.form("dalle_form", clear_on_submit=True):
+        id_dalle = st.text_input("معرف الدالة / الجزء (Ex: DP1-1, DP1-2)", value="DP1-1")
+        type_dalle = st.selectbox("نوع العمل", ["Coffrage", "Ferraillage", "Coulage", "Pose"])
+        etape = st.selectbox("المرحلة", ["Préparation", "En cours", "Terminé"])
+        specialite = st.text_input("تخصص العمال", "بنّاء / حدّاد / مساح")
+        effectif = st.number_input("عدد العمال في هذا اليوم (Effectif)", min_value=1, value=6)
+        date_debut = st.date_input("تاريخ البدء (Date de début)", value=date.today())
+        date_fin = st.date_input("تاريخ الانتهاء (Date de fin)", value=date.today())
+        statut = st.selectbox("الحالة", ["Actif", "En attente", "Validé"])
+        
+        submitted = st.form_submit_button("💾 حفظ البيانات")
+        if submitted:
+            cursor.execute('''
+                INSERT INTO dalles (id_dalle, type, etape, specialite_ouvriers, effectif, statut, date_debut, date_fin)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (id_dalle, type_dalle, etape, specialite, effectif, statut, str(date_debut), str(date_fin)))
+            conn.commit()
+            st.sidebar.success("تم تسجيل بيانات الدالة بنجاح!")
+            st.rerun()
+else:
+    st.sidebar.info("🔒 لوحة التحكم في وضع القراءة فقط. يجوز للمشرف تسجيل الدخول لإضافة أو تعديل البيانات.")
 
 # --- جلب البيانات وعرضها ---
 df = pd.read_sql("SELECT * FROM dalles", conn)
@@ -102,7 +126,7 @@ if not df.empty:
     
     st.markdown("---")
 
-    # --- الرسوم البيانية التفاعلية الملونة لتطور العمال حسب التواريخ والأجزاء ---
+    # --- الرسوم البيانية التفاعلية ---
     st.subheader("📈 تتبع عدد العمال اليومي وتوزيع الأجزاء")
     gcol1, gcol2 = st.columns(2)
     
@@ -133,6 +157,18 @@ if not df.empty:
     st.subheader("📋 جدول المتابعة المفصل (الأجزاء، التواريخ والعمال)")
     st.dataframe(df, use_container_width=True)
     
+    # --- ميزة حذف السجلات (متاحة حصرياً للمشرف المسجل دخولاً) ---
+    if st.session_state.authenticated:
+        st.subheader("🗑️ حذف سجل أو دالة مسجلة بالخطأ")
+        with st.form("delete_form"):
+            record_id_to_delete = st.selectbox("أدخل رقم المعرف (ID) السجل المراد حذفه", df['id'].tolist())
+            delete_submitted = st.form_submit_button("🗑️ حذف السجل المحدد")
+            if delete_submitted:
+                cursor.execute("DELETE FROM dalles WHERE id = ?", (record_id_to_delete,))
+                conn.commit()
+                st.success(f"تم حذف السجل رقم {record_id_to_delete} بنجاح!")
+                st.rerun()
+
     # --- زر تصدير البيانات ---
     csv = df.to_csv(index=False).encode('utf-8')
     st.download_button(
@@ -142,4 +178,4 @@ if not df.empty:
         mime='text/csv',
     )
 else:
-    st.info("📌 لا توجد بيانات مسجلة حتى الآن. استخدم القائمة الجانبية لإضافة أول دالة بصيغة (مثل DP1-1) مع تواريخ العمل وعدد العمال.")
+    st.info("📌 لا توجد بيانات مسجلة حتى الآن. قم بتسجيل الدخول من الشريط الجانبي لإضافة البيانات الأولى.")
