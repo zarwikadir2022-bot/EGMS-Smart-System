@@ -1,4 +1,5 @@
 streamlit
 pandas
-pillow
-pyzbar
+plotly
+sqlalchemy
+psycopg2-binary
