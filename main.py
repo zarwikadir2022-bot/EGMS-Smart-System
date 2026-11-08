@@ -60,7 +60,7 @@ if not st.session_state.authenticated:
         if login_btn:
             if admin_pass == "Kadirman1986":
                 st.session_state.authenticated = True
-                st.sidebar.success("Connexion réussية !")
+                st.sidebar.success("Connexion réussie !")
                 st.rerun()
             else:
                 st.sidebar.error("Mot de passe incorrect !")
@@ -155,12 +155,15 @@ if not df.empty:
 
     st.markdown("---")
 
-    # --- مخطط جانت (Gantt Chart) للمراحل التنفيذية ---
+    # --- مخطط جانت (Gantt Chart) للمراحل التنفيذية (معدل ليظهر بوضوح تام) ---
     st.subheader("⏱️ البرنامج الزمني والمراحل التنفيذية (Gantt Chart)")
     if 'date_debut' in df.columns and 'date_fin' in df.columns:
         try:
             df['date_debut'] = pd.to_datetime(df['date_debut'])
             df['date_fin'] = pd.to_datetime(df['date_fin'])
+            
+            # إضافة يوم لتاريخ الانتهاء لضمان ظهور الشريط بشكل واضح وكامل ليوم العمل
+            df['date_fin'] = df['date_fin'] + pd.Timedelta(days=1)
 
             fig_gantt = px.timeline(
                 df,
