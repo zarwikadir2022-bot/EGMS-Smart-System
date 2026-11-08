@@ -1,5 +1,4 @@
 streamlit
 pandas
 plotly
-sqlalchemy
-psycopg-binary
+supabase
