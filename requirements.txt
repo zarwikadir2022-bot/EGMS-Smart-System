@@ -6,3 +6,5 @@ supabase
 openpyxl
 folium
 streamlit-folium
+folium
+streamlit-folium
