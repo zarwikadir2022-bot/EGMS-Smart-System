@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import date, timedelta
 import plotly.express as px
 from supabase import create_client, Client
 
@@ -155,16 +155,20 @@ if not df.empty:
 
     st.markdown("---")
 
-    # --- مخطط جانت (Gantt Chart) للمراحل التنفيذية (مع معالجة آمنة للتواريخ) ---
+    # --- مخطط جانت (Gantt Chart) للمراحل التنفيذية (مع معالجة ذكية لنفس اليوم) ---
     st.subheader("⏱️ البرنامج الزمني والمراحل التنفيذية (Gantt Chart)")
     if 'date_debut' in df.columns and 'date_fin' in df.columns:
         try:
-            # استخدام format='mixed' لضمان قراءة التواريخ بكل مرونة وبدون أخطاء
             df['date_debut'] = pd.to_datetime(df['date_debut'], format='mixed')
             df['date_fin'] = pd.to_datetime(df['date_fin'], format='mixed')
             
-            # إضافة يوم لتاريخ الانتهاء لضمان ظهور الشريط بشكل واضح وكامل ليوم العمل
-            df['date_fin'] = df['date_fin'] + pd.Timedelta(days=1)
+            # إذا كان تاريخ البدء والانتهاء هو نفس اليوم، نضيف بضع ساعات فقط ليبقى مرئياً كلياً في نفس اليوم بدون فاصل يوم إضافي
+            same_day_mask = df['date_debut'] == df['date_fin']
+            df.loc[same_day_mask, 'date_fin'] = df.loc[same_day_mask, 'date_fin'] + pd.Timedelta(hours=12)
+            
+            # للأيام المختلفة، نضيف يوماً لتغطية نطاق التاريخ بشكل كامل وسلس
+            diff_day_mask = ~same_day_mask
+            df.loc[diff_day_mask, 'date_fin'] = df.loc[diff_day_mask, 'date_fin'] + pd.Timedelta(days=1)
 
             fig_gantt = px.timeline(
                 df,
@@ -205,7 +209,6 @@ if not df.empty:
                 for r in records:
                     if 'id' in r and pd.isna(r['id']):
                         del r['id']
-                    # إعادة تحويل التواريخ لنصوص قبل الحفظ لتجنب مشاكل التنسيق
                     if 'date_debut' in r and pd.notna(r['date_debut']):
                         r['date_debut'] = str(pd.to_datetime(r['date_debut']).date())
                     if 'date_fin' in r and pd.notna(r['date_fin']):
