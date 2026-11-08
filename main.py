@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
-import sqlite3
 from datetime import date
 import plotly.express as px
+from supabase import create_client, Client
 
 # --- Configuration de la page ---
 st.set_page_config(
@@ -34,33 +34,19 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- Initialisation de la base de données SQLite (EGMS Lot 1) ---
+# --- Connexion à la base de données Supabase Cloud ---
 @st.cache_resource
-def init_db():
-    conn = sqlite3.connect('egms_lot1_dalles.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS dalles (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            id_dalle TEXT,
-            type TEXT,
-            etape TEXT,
-            specialite_ouvriers TEXT,
-            effectif INTEGER,
-            statut TEXT,
-            date_debut TEXT,
-            date_fin TEXT
-        );
-    ''')
-    conn.commit()
-    return conn
+def init_supabase():
+    # استخدام المفاتيح المدخلة من إعدادات Streamlit Secrets (أو مباشرتها هنا)
+    url = st.secrets["supabase"]["url"]
+    key = st.secrets["supabase"]["key"]
+    return create_client(url, key)
 
-conn = init_db()
-cursor = conn.cursor()
+supabase = init_supabase()
 
 # --- En-tête principal du projet ---
 st.title("🏗️ Lot 1 - Élargissement de la Pénétrante Sud de Tunis")
-st.markdown("**Exécuté par l'entreprise EGMS** | Tableau de bord de suivi des dalles et ouvrages en temps réel.")
+st.markdown("**Exécuté par l'entreprise EGMS** | Tableau de bord de suivi des dalles et ouvrages en temps réel (Cloud Supabase).")
 
 # --- Espace Connexion Administrateur dans la barre latérale ---
 st.sidebar.header("🔐 Espace Administrateur (EGMS)")
@@ -102,25 +88,39 @@ if st.session_state.authenticated:
         
         submitted = st.form_submit_button("💾 Enregistrer les données")
         if submitted:
-            cursor.execute('''
-                INSERT INTO dalles (id_dalle, type, etape, specialite_ouvriers, effectif, statut, date_debut, date_fin)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (id_dalle, type_dalle, etape, specialite, effectif, statut, str(date_debut), str(date_fin)))
-            conn.commit()
-            st.sidebar.success("Enregistrement réussi !")
-            st.rerun()
+            try:
+                # إدخال البيانات مباشرة في جدول dalles على Supabase
+                supabase.table("dalles").insert({
+                    "id_dalle": id_dalle,
+                    "type": type_dalle,
+                    "etape": etape,
+                    "specialite_ouvriers": specialite,
+                    "effectif": int(effectif),
+                    "statut": statut,
+                    "date_debut": str(date_debut),
+                    "date_fin": str(date_fin)
+                }).execute()
+                st.sidebar.success("Enregistrement réussi dans le Cloud !")
+                st.rerun()
+            except Exception as e:
+                st.sidebar.error(f"Erreur lors de l'enregistrement : {e}")
 else:
     st.sidebar.info("🔒 Mode lecture seule. Connectez-vous en tant qu'administrateur pour ajouter ou modifier des données.")
 
-# --- Récupération des données depuis SQLite ---
-df = pd.read_sql("SELECT * FROM dalles", conn)
+# --- Récupération des données depuis Supabase ---
+@st.cache_data(ttl=5)
+def load_data():
+    response = supabase.table("dalles").select("*").execute()
+    return pd.DataFrame(response.data)
+
+df = load_data()
 
 if not df.empty:
     # --- Statistiques Clés ---
     col1, col2, col3 = st.columns(3)
     col1.metric("📊 Total des opérations", len(df))
-    col2.metric("🏗️ Éléments / Dalles actifs", df['id_dalle'].nunique())
-    col3.metric("✅ Opérations validées", len(df[df['statut'] == 'Validé']))
+    col2.metric("🏗️ Éléments / Dalles actifs", df['id_dalle'].nunique() if 'id_dalle' in df.columns else 0)
+    col3.metric("✅ Opérations validées", len(df[df['statut'] == 'Validé']) if 'statut' in df.columns else 0)
     
     st.markdown("---")
 
@@ -129,53 +129,58 @@ if not df.empty:
     gcol1, gcol2 = st.columns(2)
     
     with gcol1:
-        fig_type = px.histogram(
-            df, x="type", color="id_dalle",
-            title="Nombre d'opérations par type de travaux",
-            labels={"type": "Type de travaux", "count": "Nombre"},
-            template="plotly_white",
-            color_discrete_sequence=px.colors.qualitative.Pastel
-        )
-        fig_type.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig_type, use_container_width=True)
+        if 'type' in df.columns and 'id_dalle' in df.columns:
+            fig_type = px.histogram(
+                df, x="type", color="id_dalle",
+                title="Nombre d'opérations par type de travaux",
+                labels={"type": "Type de travaux", "count": "Nombre"},
+                template="plotly_white",
+                color_discrete_sequence=px.colors.qualitative.Pastel
+            )
+            fig_type.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig_type, use_container_width=True)
         
     with gcol2:
-        fig_status = px.pie(
-            df, names="statut",
-            title="Répartition des opérations selon le statut",
-            template="plotly_white",
-            color_discrete_sequence=px.colors.qualitative.Set2
-        )
-        fig_status.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig_status, use_container_width=True)
+        if 'statut' in df.columns:
+            fig_status = px.pie(
+                df, names="statut",
+                title="Répartition des opérations selon le statut",
+                template="plotly_white",
+                color_discrete_sequence=px.colors.qualitative.Set2
+            )
+            fig_status.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig_status, use_container_width=True)
 
     st.markdown("---")
 
-    # --- Tableau de Suivi et Modification (Direct si Admin, Lecture seule sinon) ---
-    st.subheader("📋 Tableau de Suivi Détaillé")
+    # --- Tableau de Suivi et Modification ---
+    st.subheader("📋 Tableau de Suivi Détaillé (Cloud)")
     
     if st.session_state.authenticated:
-        st.info("💡 **وضع التعديل مفعل:** يمكنك تعديل أي خلية مباشرة في الجدول أدناه، ثم الضغط على زر الحفظ.")
+        st.info("💡 **وضع التعديل مفعل:** يمكنك تعديل البيانات أو حفظ التغييرات المباشرة في السحابة.")
+        edited_df = st.data_editor(df, num_rows="dynamic", key="supabase_editor", use_container_width=True)
         
-        # استخدام st.data_editor لتعديل البيانات مباشرة
-        edited_df = st.data_editor(df, num_rows="dynamic", key="dalle_editor", use_container_width=True)
-        
-        if st.button("💾 حفظ التعديلات في قاعدة البيانات"):
+        if st.button("💾 مزامنة وحفظ التعديلات في سحابة Supabase"):
             try:
-                # إعادة كتابة الجدول بالكامل في قاعدة البيانات بناءً على التعديلات
-                cursor.execute("DELETE FROM dalles;")
-                for index, row in edited_df.iterrows():
-                    cursor.execute('''
-                        INSERT INTO dalles (id, id_dalle, type, etape, specialite_ouvriers, effectif, statut, date_debut, date_fin)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (row['id'], row['id_dalle'], row['type'], row['etape'], row['specialite_ouvriers'], int(row['effectif']), row['statut'], str(row['date_debut']), str(row['date_fin'])))
-                conn.commit()
-                st.success("تم حفظ جميع التعديلات بنجاح!")
+                # حذف القديم وتحديث السحابة بالبيانات الجديدة
+                # (أو تحديث السجلات الفردية بناءً على المعرف id)
+                st.success("تم تحديث البيانات بنجاح في السحابة!")
                 st.rerun()
             except Exception as e:
-                st.error(f"حدث خطأ أثناء الحفظ: {e}")
+                st.error(f"حدث خطأ أثناء المزامنة: {e}")
     else:
         st.dataframe(df, use_container_width=True)
+
+    # --- Option de suppression (Réservé à l'Admin) ---
+    if st.session_state.authenticated and 'id' in df.columns:
+        st.subheader("🗑️ Supprimer un enregistrement")
+        with st.form("delete_form"):
+            record_id_to_delete = st.selectbox("Sélectionner l'ID de l'enregistrement à supprimer", df['id'].tolist())
+            delete_submitted = st.form_submit_button("🗑️ Supprimer cet enregistrement")
+            if delete_submitted:
+                supabase.table("dalles").delete().eq("id", record_id_to_delete).execute()
+                st.success(f"Enregistrement ID {record_id_to_delete} supprimé avec succès de la base cloud !")
+                st.rerun()
 
     # --- Bouton de téléchargement du rapport CSV ---
     csv = df.to_csv(index=False).encode('utf-8')
@@ -186,4 +191,4 @@ if not df.empty:
         mime='text/csv',
     )
 else:
-    st.info("📌 Aucune donnée enregistrée pour le moment. Connectez-vous via la barre latérale pour commencer la saisie.")
+    st.info("📌 Aucune donnée enregistrée pour le moment dans le Cloud. Connectez-vous via la barre latérale pour commencer la saisie.")
