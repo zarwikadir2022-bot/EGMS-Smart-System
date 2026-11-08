@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-from datetime import date
+from datetime import date, datetime
 import plotly.express as px
 
 # --- Configuration de la page ---
@@ -87,9 +87,12 @@ else:
 
 st.sidebar.markdown("---")
 
-# --- Formulaire d'insertion et modification (Réservé à l'Admin) ---
+# --- Récupération des données actuelles pour les formulaires ---
+df = pd.read_sql("SELECT * FROM dalles", conn)
+
+# --- Formulaire d'insertion (Réservé à l'Admin) ---
 if st.session_state.authenticated:
-    st.sidebar.header("📌 Saisie & Gestion des Dalles")
+    st.sidebar.header("📌 Saisie d'une nouvelle dalle")
     with st.sidebar.form("dalle_form", clear_on_submit=True):
         id_dalle = st.text_input("Identifiant de la dalle / Élément (Ex: DP1-1, DP1-2)", value="DP1-1")
         type_dalle = st.selectbox("Type de travaux", ["Coffrage", "Ferraillage", "Coulage", "Pose"])
@@ -109,14 +112,66 @@ if st.session_state.authenticated:
             conn.commit()
             st.sidebar.success("Enregistrement réussi !")
             st.rerun()
+            
+    # --- Formulaire de modification propre (Update) ---
+    if not df.empty:
+        st.sidebar.markdown("---")
+        st.sidebar.header("✏️ Modifier un enregistrement existant")
+        
+        # Sélection de l'ID à modifier
+        record_id_to_edit = st.sidebar.selectbox("Sélectionner l'ID de la dalle à modifier", df['id'].tolist(), key="edit_select")
+        
+        # Récupération de la ligne sélectionnée
+        selected_row = df[df['id'] == record_id_to_edit].iloc[0]
+        
+        # Parsing sécurisé des dates existantes
+        try:
+            default_d_debut = datetime.strptime(str(selected_row['date_debut']), "%Y-%m-%d").date()
+        except:
+            default_d_debut = date.today()
+            
+        try:
+            default_d_fin = datetime.strptime(str(selected_row['date_fin']), "%Y-%m-%d").date()
+        except:
+            default_d_fin = date.today()
+
+        with st.sidebar.form("update_form"):
+            up_id_dalle = st.text_input("Identifiant (Dalle)", value=str(selected_row['id_dalle']))
+            
+            types_list = ["Coffrage", "Ferraillage", "Coulage", "Pose"]
+            default_type_idx = types_list.index(selected_row['type']) if selected_row['type'] in types_list else 0
+            up_type = st.selectbox("Type de travaux", types_list, index=default_type_idx)
+            
+            etapes_list = ["Préparation", "En cours", "Terminé"]
+            default_etape_idx = etapes_list.index(selected_row['etape']) if selected_row['etape'] in etapes_list else 0
+            up_etape = st.selectbox("Étape", etapes_list, index=default_etape_idx)
+            
+            up_specialite = st.text_input("Spécialité des ouvriers", value=str(selected_row['specialite_ouvriers']))
+            up_effectif = st.number_input("Effectif journalier", min_value=1, value=int(selected_row['effectif']))
+            
+            up_date_debut = st.date_input("Date de début", value=default_d_debut)
+            up_date_fin = st.date_input("Date de fin", value=default_d_fin)
+            
+            statuts_list = ["Actif", "En attente", "Validé"]
+            default_statut_idx = statuts_list.index(selected_row['statut']) if selected_row['statut'] in statuts_list else 0
+            up_statut = st.selectbox("Statut", statuts_list, index=default_statut_idx)
+            
+            update_submitted = st.form_submit_button("🔄 Mettre à jour")
+            if update_submitted:
+                cursor.execute('''
+                    UPDATE dalles 
+                    SET id_dalle = ?, type = ?, etape = ?, specialite_ouvriers = ?, effectif = ?, statut = ?, date_debut = ?, date_fin = ?
+                    WHERE id = ?
+                ''', (up_id_dalle, up_type, up_etape, up_specialite, up_effectif, up_statut, str(up_date_debut), str(up_date_fin), record_id_to_edit))
+                conn.commit()
+                st.sidebar.success(f"Enregistrement ID {record_id_to_edit} mis à jour avec succès !")
+                st.rerun()
 else:
     st.sidebar.info("🔒 Mode lecture seule. Connectez-vous en tant qu'administrateur pour ajouter ou modifier des données.")
 
-# --- Récupération et affichage des données ---
-df = pd.read_sql("SELECT * FROM dalles", conn)
-
+# --- Affichage des données (Actualisées) ---
 if not df.empty:
-    # --- Statistiques Clés (Métriques des ouvrages) ---
+    # --- Statistiques Clés ---
     col1, col2, col3 = st.columns(3)
     col1.metric("📊 Total des opérations", len(df))
     col2.metric("🏗️ Éléments / Dalles actifs", df['id_dalle'].nunique())
@@ -124,7 +179,7 @@ if not df.empty:
     
     st.markdown("---")
 
-    # --- Graphiques épurés (Sans statistiques de travailleurs) ---
+    # --- Graphiques épurés ---
     st.subheader("📈 Répartition et Avancement des Opérations")
     gcol1, gcol2 = st.columns(2)
     
@@ -157,7 +212,7 @@ if not df.empty:
     
     # --- Option de suppression (Réservé à l'Admin) ---
     if st.session_state.authenticated:
-        st.subheader("🗑️ Supprimer un enregistrement erroné")
+        st.subheader("🗑️ Supprimer un enregistrement")
         with st.form("delete_form"):
             record_id_to_delete = st.selectbox("Sélectionner l'ID de l'enregistrement à supprimer", df['id'].tolist())
             delete_submitted = st.form_submit_button("🗑️ Supprimer cet enregistrement")
