@@ -4,14 +4,14 @@ import sqlite3
 from datetime import date
 import plotly.express as px
 
-# --- إعداد الصفحة بتصميم عصري ---
+# --- Configuration de la page ---
 st.set_page_config(
-    page_title="Projet Pont Gholoul - Suivi des Dalles",
+    page_title="Lot 1 - Pénétrante Sud de Tunis (EGMS)",
     page_icon="🏗️",
     layout="wide"
 )
 
-# --- تنسيقات CSS عصرية بخلفية جليدية (Glassmorphism) ---
+# --- Styles CSS (Thème Glacial / Glassmorphism) ---
 st.markdown("""
 <style>
     .stApp {
@@ -34,10 +34,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- إعداد قاعدة البيانات المحلية SQLite (مع إمكانية الحذف والإدارة) ---
+# --- Initialisation de la base de données SQLite (EGMS Lot 1) ---
 @st.cache_resource
 def init_db():
-    conn = sqlite3.connect('gholoul_dalles_v3.db', check_same_thread=False)
+    conn = sqlite3.connect('egms_lot1_dalles.db', check_same_thread=False)
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS dalles (
@@ -58,93 +58,91 @@ def init_db():
 conn = init_db()
 cursor = conn.cursor()
 
-# --- عنوان التطبيق الرئيسي ---
-st.title("🏗️ Tableau de Bord - Suivi des Dalles (Pont Gholoul)")
-st.markdown("لوحة التحكم الذكية لمتابعة أجزاء ودالات القنطرة (مثل DP1-1, DP1-2) مع التفاصيل اليومية للعمال والتواريخ.")
+# --- En-tête principal du projet ---
+st.title("🏗️ Lot 1 - Élargissement de la Pénétrante Sud de Tunis")
+st.markdown("**Exécuté par l'entreprise EGMS** | Tableau de bord de suivi des dalles et ouvrages en temps réel.")
 
-# --- نظام تسجيل الدخول في الشريط الجانبي ---
-st.sidebar.header("🔐 بوابة المشرف (Admin Login)")
+# --- Espace Connexion Administrateur dans la barre latérale ---
+st.sidebar.header("🔐 Espace Administrateur (EGMS)")
 
-# تهيئة حالة الجلسة (Session State) لتسجيل الدخول
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
     with st.sidebar.form("login_form"):
-        admin_pass = st.text_input("كلمة مرور المسؤول", type="password")
-        login_btn = st.form_submit_button("تسجيل الدخول")
+        admin_pass = st.text_input("Mot de passe administrateur", type="password")
+        login_btn = st.form_submit_button("Se connecter")
         if login_btn:
-            # كلمة المرور الخاصة بك (يمكنك تغييرها هنا متى شئت)
             if admin_pass == "Kadirman1986":
                 st.session_state.authenticated = True
-                st.sidebar.success("تم تسجيل الدخول بنجاح!")
+                st.sidebar.success("Connexion réussie !")
                 st.rerun()
             else:
-                st.sidebar.error("كلمة المرور غير صحيحة!")
+                st.sidebar.error("Mot de passe incorrect !")
 else:
-    st.sidebar.success("مرحباً بك، المشرف (عبد القادر)")
-    if st.sidebar.button("تسجيل الخروج (Logout)"):
+    st.sidebar.success("Bienvenue, Administrateur")
+    if st.sidebar.button("Se déconnecter (Logout)"):
         st.session_state.authenticated = False
         st.rerun()
 
 st.sidebar.markdown("---")
 
-# --- نموذج الإدخال (متاح فقط للمشرف المسجل دخولاً) ---
+# --- Formulaire d'insertion et modification (Réservé à l'Admin) ---
 if st.session_state.authenticated:
-    st.sidebar.header("📌 تسجيل وتعديل دالة جديدة")
+    st.sidebar.header("📌 Saisie & Gestion des Dalles")
     with st.sidebar.form("dalle_form", clear_on_submit=True):
-        id_dalle = st.text_input("معرف الدالة / الجزء (Ex: DP1-1, DP1-2)", value="DP1-1")
-        type_dalle = st.selectbox("نوع العمل", ["Coffrage", "Ferraillage", "Coulage", "Pose"])
-        etape = st.selectbox("المرحلة", ["Préparation", "En cours", "Terminé"])
-        specialite = st.text_input("تخصص العمال", "بنّاء / حدّاد / مساح")
-        effectif = st.number_input("عدد العمال في هذا اليوم (Effectif)", min_value=1, value=6)
-        date_debut = st.date_input("تاريخ البدء (Date de début)", value=date.today())
-        date_fin = st.date_input("تاريخ الانتهاء (Date de fin)", value=date.today())
-        statut = st.selectbox("الحالة", ["Actif", "En attente", "Validé"])
+        id_dalle = st.text_input("Identifiant de la dalle / Élément (Ex: DP1-1, DP1-2)", value="DP1-1")
+        type_dalle = st.selectbox("Type de travaux", ["Coffrage", "Ferraillage", "Coulage", "Pose"])
+        etape = st.selectbox("Étape", ["Préparation", "En cours", "Terminé"])
+        specialite = st.text_input("Spécialité des ouvriers", "Maçon / Ferrailleur / Topographe")
+        effectif = st.number_input("Effectif journalier", min_value=1, value=6)
+        date_debut = st.date_input("Date de début", value=date.today())
+        date_fin = st.date_input("Date de fin", value=date.today())
+        statut = st.selectbox("Statut", ["Actif", "En attente", "Validé"])
         
-        submitted = st.form_submit_button("💾 حفظ البيانات")
+        submitted = st.form_submit_button("💾 Enregistrer les données")
         if submitted:
             cursor.execute('''
                 INSERT INTO dalles (id_dalle, type, etape, specialite_ouvriers, effectif, statut, date_debut, date_fin)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (id_dalle, type_dalle, etape, specialite, effectif, statut, str(date_debut), str(date_fin)))
             conn.commit()
-            st.sidebar.success("تم تسجيل بيانات الدالة بنجاح!")
+            st.sidebar.success("Enregistrement réussi !")
             st.rerun()
 else:
-    st.sidebar.info("🔒 لوحة التحكم في وضع القراءة فقط. يجوز للمشرف تسجيل الدخول لإضافة أو تعديل البيانات.")
+    st.sidebar.info("🔒 Mode lecture seule. Connectez-vous en tant qu'administrateur pour ajouter ou modifier des données.")
 
-# --- جلب البيانات وعرضها ---
+# --- Récupération et affichage des données ---
 df = pd.read_sql("SELECT * FROM dalles", conn)
 
 if not df.empty:
-    # --- قسم الإحصائيات ---
+    # --- Statistiques Clés (Métriques des ouvrages) ---
     col1, col2, col3 = st.columns(3)
-    col1.metric("📊 إجمالي العمليات المسجلة", len(df))
-    col2.metric("🏗️ الأجزاء والدالات النشطة", df['id_dalle'].nunique())
-    col3.metric("✅ العمليات المكتملة", len(df[df['statut'] == 'Validé']))
+    col1.metric("📊 Total des opérations", len(df))
+    col2.metric("🏗️ Éléments / Dalles actifs", df['id_dalle'].nunique())
+    col3.metric("✅ Opérations validées", len(df[df['statut'] == 'Validé']))
     
     st.markdown("---")
 
-    # --- الرسوم البيانية التفاعلية ---
-    st.subheader("📈 تتبع عدد العمال اليومي وتوزيع الأجزاء")
+    # --- Graphiques épurés (Sans statistiques de travailleurs) ---
+    st.subheader("📈 Répartition et Avancement des Opérations")
     gcol1, gcol2 = st.columns(2)
     
     with gcol1:
-        fig_effectif = px.bar(
-            df, x="date_debut", y="effectif", color="id_dalle",
-            title="عدد العمال التفصيلي حسب تواريخ العمل وأجزاء الدالات",
-            labels={"date_debut": "تاريخ البدء", "effectif": "عدد العمال"},
+        fig_type = px.histogram(
+            df, x="type", color="id_dalle",
+            title="Nombre d'opérations par type de travaux",
+            labels={"type": "Type de travaux", "count": "Nombre"},
             template="plotly_white",
             color_discrete_sequence=px.colors.qualitative.Pastel
         )
-        fig_effectif.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig_effectif, use_container_width=True)
+        fig_type.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(fig_type, use_container_width=True)
         
     with gcol2:
         fig_status = px.pie(
-            df, names="statut", values="effectif",
-            title="توزيع حصص العمال حسب حالات العمليات",
+            df, names="statut",
+            title="Répartition des opérations selon le statut",
             template="plotly_white",
             color_discrete_sequence=px.colors.qualitative.Set2
         )
@@ -153,29 +151,29 @@ if not df.empty:
 
     st.markdown("---")
 
-    # --- جدول البيانات المفصل ---
-    st.subheader("📋 جدول المتابعة المفصل (الأجزاء، التواريخ والعمال)")
+    # --- Tableau détaillé des données ---
+    st.subheader("📋 Tableau de Suivi Détaillé")
     st.dataframe(df, use_container_width=True)
     
-    # --- ميزة حذف السجلات (متاحة حصرياً للمشرف المسجل دخولاً) ---
+    # --- Option de suppression (Réservé à l'Admin) ---
     if st.session_state.authenticated:
-        st.subheader("🗑️ حذف سجل أو دالة مسجلة بالخطأ")
+        st.subheader("🗑️ Supprimer un enregistrement erroné")
         with st.form("delete_form"):
-            record_id_to_delete = st.selectbox("أدخل رقم المعرف (ID) السجل المراد حذفه", df['id'].tolist())
-            delete_submitted = st.form_submit_button("🗑️ حذف السجل المحدد")
+            record_id_to_delete = st.selectbox("Sélectionner l'ID de l'enregistrement à supprimer", df['id'].tolist())
+            delete_submitted = st.form_submit_button("🗑️ Supprimer cet enregistrement")
             if delete_submitted:
                 cursor.execute("DELETE FROM dalles WHERE id = ?", (record_id_to_delete,))
                 conn.commit()
-                st.success(f"تم حذف السجل رقم {record_id_to_delete} بنجاح!")
+                st.success(f"Enregistrement ID {record_id_to_delete} supprimé avec succès !")
                 st.rerun()
 
-    # --- زر تصدير البيانات ---
+    # --- Bouton de téléchargement du rapport CSV ---
     csv = df.to_csv(index=False).encode('utf-8')
     st.download_button(
-        label="📥 تحميل تقرير الدالات والأجزاء (CSV)",
+        label="📥 Télécharger le rapport (CSV)",
         data=csv,
-        file_name='gholoul_dalles_subparts.csv',
+        file_name='egms_lot1_penetrante_sud_tunis.csv',
         mime='text/csv',
     )
 else:
-    st.info("📌 لا توجد بيانات مسجلة حتى الآن. قم بتسجيل الدخول من الشريط الجانبي لإضافة البيانات الأولى.")
+    st.info("📌 Aucune donnée enregistrée pour le moment. Connectez-vous via la barre latérale pour commencer la saisie.")
