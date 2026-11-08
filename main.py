@@ -155,12 +155,13 @@ if not df.empty:
 
     st.markdown("---")
 
-    # --- مخطط جانت (Gantt Chart) للمراحل التنفيذية (معدل ليظهر بوضوح تام) ---
+    # --- مخطط جانت (Gantt Chart) للمراحل التنفيذية (مع معالجة آمنة للتواريخ) ---
     st.subheader("⏱️ البرنامج الزمني والمراحل التنفيذية (Gantt Chart)")
     if 'date_debut' in df.columns and 'date_fin' in df.columns:
         try:
-            df['date_debut'] = pd.to_datetime(df['date_debut'])
-            df['date_fin'] = pd.to_datetime(df['date_fin'])
+            # استخدام format='mixed' لضمان قراءة التواريخ بكل مرونة وبدون أخطاء
+            df['date_debut'] = pd.to_datetime(df['date_debut'], format='mixed')
+            df['date_fin'] = pd.to_datetime(df['date_fin'], format='mixed')
             
             # إضافة يوم لتاريخ الانتهاء لضمان ظهور الشريط بشكل واضح وكامل ليوم العمل
             df['date_fin'] = df['date_fin'] + pd.Timedelta(days=1)
@@ -204,6 +205,12 @@ if not df.empty:
                 for r in records:
                     if 'id' in r and pd.isna(r['id']):
                         del r['id']
+                    # إعادة تحويل التواريخ لنصوص قبل الحفظ لتجنب مشاكل التنسيق
+                    if 'date_debut' in r and pd.notna(r['date_debut']):
+                        r['date_debut'] = str(pd.to_datetime(r['date_debut']).date())
+                    if 'date_fin' in r and pd.notna(r['date_fin']):
+                        r['date_fin'] = str(pd.to_datetime(r['date_fin']).date())
+                        
                 supabase.table("dalles").upsert(records).execute()
                 st.success("تم مزامنة وحفظ جميع التعديلات بنجاح في السحابة!")
                 st.cache_data.clear()
